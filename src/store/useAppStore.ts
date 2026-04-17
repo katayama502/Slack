@@ -152,10 +152,14 @@ export const useAppStore = create<ExtendedStore>((set, _get) => ({
   // ── UI State ──────────────────────────────────────────────────────────────
   sidebarOpen: true,
   threadPanelMessageId: null,
+  searchQuery: '',
+  notificationsPanelOpen: false,
   setSidebarOpen: (open: boolean) => set({ sidebarOpen: open }),
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   openThreadPanel: (messageId: string) =>
     set({ threadPanelMessageId: messageId, activeThreadMessageId: messageId }),
   closeThreadPanel: () =>
     set({ threadPanelMessageId: null, activeThreadMessageId: null }),
+  setSearchQuery: (searchQuery: string) => set({ searchQuery }),
+  setNotificationsPanelOpen: (notificationsPanelOpen: boolean) => set({ notificationsPanelOpen }),
 }));

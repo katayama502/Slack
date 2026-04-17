@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getDoc,
   addDoc,
   updateDoc,
   deleteDoc,
@@ -13,6 +14,7 @@ import {
   getDocs,
   setDoc,
   arrayUnion,
+  arrayRemove,
 } from 'firebase/firestore';
 import {
   signInWithPopup,
@@ -152,6 +154,17 @@ export function subscribeToChannels(callback: (channels: Channel[]) => void) {
       ...(d.data() as Omit<Channel, 'id'>),
     }));
     callback(channels);
+  });
+}
+
+/** メンバーでなければチャンネルに自動参加する */
+export async function joinChannelIfNeeded(channelId: string, uid: string): Promise<void> {
+  const snap = await getDoc(doc(db, 'channels', channelId));
+  if (!snap.exists()) return;
+  const members: string[] = snap.data().members ?? [];
+  if (members.includes(uid)) return;
+  await updateDoc(doc(db, 'channels', channelId), {
+    members: arrayUnion(uid),
   });
 }
 
@@ -337,7 +350,19 @@ export async function addReaction(
   uid: string,
 ): Promise<void> {
   const ref = doc(db, 'channels', channelId, 'messages', messageId);
+  await updateDoc(ref, { [`reactions.${emoji}`]: arrayUnion(uid) });
+}
+
+export async function toggleReaction(
+  channelId: string,
+  messageId: string,
+  emoji: string,
+  uid: string,
+  currentReactions: Record<string, string[]>,
+): Promise<void> {
+  const ref = doc(db, 'channels', channelId, 'messages', messageId);
+  const hasReacted = (currentReactions[emoji] ?? []).includes(uid);
   await updateDoc(ref, {
-    [`reactions.${emoji}`]: arrayUnion(uid),
+    [`reactions.${emoji}`]: hasReacted ? arrayRemove(uid) : arrayUnion(uid),
   });
 }

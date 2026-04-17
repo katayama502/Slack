@@ -41,8 +41,12 @@ function buildRows(messages: Message[]): Row[] {
 }
 
 export default function MessageList() {
-  const messages = useMessages();
+  const allMessages = useMessages();
+  const searchQuery = useAppStore((s) => s.searchQuery);
   const openThreadPanel = useAppStore((s) => s.openThreadPanel);
+  const messages = searchQuery.trim()
+    ? allMessages.filter((m) => m.text.toLowerCase().includes(searchQuery.toLowerCase()))
+    : allMessages;
   const parentRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
 

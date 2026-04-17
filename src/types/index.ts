@@ -36,6 +36,8 @@ export interface Message {
   createdAt: Timestamp;
   mentions?: string[];     // uid[]
   threadCount?: number;
+  reactions?: Record<string, string[]>; // emoji → uid[]
+  channelId?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -116,7 +118,11 @@ export interface AppStore {
   // ── UI State ──────────────────────────────────────────────────────────────
   sidebarOpen: boolean;
   threadPanelMessageId: string | null;
+  searchQuery: string;
+  notificationsPanelOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
   openThreadPanel: (messageId: string) => void;
   closeThreadPanel: () => void;
+  setSearchQuery: (q: string) => void;
+  setNotificationsPanelOpen: (open: boolean) => void;
 }

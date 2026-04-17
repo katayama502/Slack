@@ -5,17 +5,21 @@ import ChannelHeader from '../channel/ChannelHeader';
 import MessageList from '../message/MessageList';
 import MessageInput from '../message/MessageInput';
 import ThreadPanel from '../thread/ThreadPanel';
+import NotificationsPanel from '../notifications/NotificationsPanel';
 
 export default function Layout() {
   const threadPanelMessageId = useAppStore((s) => s.threadPanelMessageId);
   const activeChannelId = useAppStore((s) => s.activeChannelId);
+  const notificationsPanelOpen = useAppStore((s) => s.notificationsPanelOpen);
+
+  const rightPanel = threadPanelMessageId || notificationsPanelOpen;
 
   return (
     <div
       className="flex h-screen overflow-hidden"
       style={{
         display: 'grid',
-        gridTemplateColumns: threadPanelMessageId
+        gridTemplateColumns: rightPanel
           ? '56px 220px 1fr 400px'
           : '56px 220px 1fr',
         gridTemplateRows: '1fr',
@@ -51,10 +55,10 @@ export default function Layout() {
         )}
       </main>
 
-      {/* Thread Panel */}
-      {threadPanelMessageId && (
+      {/* Right Panel: Thread or Notifications */}
+      {rightPanel && (
         <aside className="flex flex-col overflow-hidden" style={{ borderLeft: '1px solid #E8E8E8' }}>
-          <ThreadPanel />
+          {threadPanelMessageId ? <ThreadPanel /> : <NotificationsPanel />}
         </aside>
       )}
     </div>

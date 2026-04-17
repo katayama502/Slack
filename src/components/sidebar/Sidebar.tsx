@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAppStore } from '../../store/useAppStore';
-import { subscribeToUsers, signOut, getOrCreateDMChannel, getDMChannelName } from '../../services';
+import { subscribeToUsers, signOut, getOrCreateDMChannel, getDMChannelName, joinChannelIfNeeded } from '../../services';
 import AddChannelModal from './AddChannelModal';
 import type { User } from '../../types';
 
@@ -14,6 +14,7 @@ export default function Sidebar() {
   const [dmLoading, setDmLoading] = useState<string | null>(null);
   const [channelsOpen, setChannelsOpen] = useState(true);
   const [dmOpen, setDmOpen] = useState(true);
+  const [inviteCopied, setInviteCopied] = useState(false);
 
   useEffect(() => {
     const unsub = subscribeToUsers((u) => setUsers(u));
@@ -107,7 +108,10 @@ export default function Sidebar() {
                 return (
                   <li key={ch.id}>
                     <button
-                      onClick={() => setActiveChannel(ch.id)}
+                      onClick={async () => {
+                        if (user) await joinChannelIfNeeded(ch.id, user.uid).catch(() => {});
+                        setActiveChannel(ch.id);
+                      }}
                       className="flex items-center gap-2 py-[5px] pl-4 pr-3 rounded transition-colors text-[14px]"
                       style={{
                         width: 'calc(100% - 8px)',
@@ -221,14 +225,23 @@ export default function Sidebar() {
                 );
               })}
 
-              {/* メンバーを招待（UI only） */}
+              {/* メンバーを招待 */}
               <li>
                 <button
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(window.location.origin);
+                      setInviteCopied(true);
+                      setTimeout(() => setInviteCopied(false), 2000);
+                    } catch {
+                      // ignore
+                    }
+                  }}
                   className="flex items-center gap-2 py-[5px] pl-3 pr-3 text-[#CFC3CF] hover:text-white hover:bg-white/10 transition-colors text-[14px] group"
                   style={{ width: 'calc(100% - 8px)', margin: '0 4px', borderRadius: '4px' }}
                 >
                   <span className="w-5 h-5 flex items-center justify-center rounded-full text-xs bg-[#CFC3CF]/25 group-hover:bg-white/20 flex-shrink-0">+</span>
-                  <span>メンバーを招待</span>
+                  <span>{inviteCopied ? 'URLをコピーしました！' : 'メンバーを招待'}</span>
                 </button>
               </li>
             </ul>
