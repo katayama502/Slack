@@ -26,14 +26,6 @@ export default function Sidebar() {
   // 通常チャンネルのみ（DM除外）
   const regularChannels = channels.filter((c) => !c.name.startsWith('__dm__'));
 
-  // アクティブチャンネルが DM か判定 → 対応ユーザーを返す
-  const activeDMUser = (() => {
-    if (!activeChannelId || !user) return null;
-    const ch = channels.find((c) => c.id === activeChannelId);
-    if (!ch?.name.startsWith('__dm__')) return null;
-    const otherUid = ch.members?.find((m) => m !== user.uid);
-    return users.find((u) => u.uid === otherUid) ?? null;
-  })();
 
   const handleOpenDM = async (otherUser: User) => {
     if (!user) return;
