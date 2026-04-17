@@ -59,16 +59,11 @@ export function subscribeToAuthState(callback: (user: User | null) => void) {
 
 export async function signInWithGoogle(): Promise<void> {
   const provider = new GoogleAuthProvider();
-  // localhost はポップアップ、本番はリダイレクト（ポップアップブロック対策）
-  if (location.hostname === 'localhost') {
-    await signInWithPopup(auth, provider);
-  } else {
-    await signInWithRedirect(auth, provider);
-  }
+  await signInWithPopup(auth, provider);
 }
 
 export async function handleGoogleRedirectResult(): Promise<void> {
-  await getRedirectResult(auth);
+  // signInWithPopup に統一したため何もしない
 }
 
 export async function signInWithEmail(
