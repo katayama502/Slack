@@ -11,6 +11,8 @@ function parseMentions(text: string): string[] {
   return uids;
 }
 
+const PLACEHOLDER = 'テキスト'; // 4 chars
+
 // テキストエリアの選択範囲をマーカーで囲む
 function wrapSelection(
   textarea: HTMLTextAreaElement,
@@ -21,16 +23,21 @@ function wrapSelection(
   const end = textarea.selectionEnd;
   const value = textarea.value;
   const selected = value.slice(start, end);
-  const wrapped = selected
-    ? `${marker}${selected}${marker}`
-    : `${marker}テキスト${marker}`;
+  const inner = selected || PLACEHOLDER;
+  const wrapped = `${marker}${inner}${marker}`;
   const newValue = value.slice(0, start) + wrapped + value.slice(end);
   setText(newValue);
   setTimeout(() => {
     textarea.focus();
-    const newPos = selected ? start + wrapped.length : start + marker.length;
-    const selEnd = selected ? newPos : newPos + 3; // "テキスト" の長さ
-    textarea.setSelectionRange(selected ? newPos : start + marker.length, selEnd);
+    if (selected) {
+      // Move cursor to after the wrapped text
+      const newPos = start + wrapped.length;
+      textarea.setSelectionRange(newPos, newPos);
+    } else {
+      // Select the placeholder text so user can immediately type over it
+      const selStart = start + marker.length;
+      textarea.setSelectionRange(selStart, selStart + PLACEHOLDER.length);
+    }
   }, 0);
 }
 
@@ -209,13 +216,20 @@ export default function MessageInput() {
           <div className="flex items-center gap-0.5">
             {/* Bold */}
             <button title="太字 (*テキスト*)" onMouseDown={(e) => { e.preventDefault(); if (textareaRef.current) wrapSelection(textareaRef.current, '*', setText); }}
-              className="w-8 h-8 flex items-center justify-center rounded text-[#616061] hover:bg-[#F8F8F8] hover:text-[#1D1C1D] transition-colors font-bold text-[14px]">B</button>
+              className="w-8 h-8 flex items-center justify-center rounded text-[#616061] hover:bg-[#F8F8F8] hover:text-[#1D1C1D] transition-colors"
+              style={{ fontWeight: 700, fontSize: '14px' }}>B</button>
             {/* Italic */}
             <button title="斜体 (_テキスト_)" onMouseDown={(e) => { e.preventDefault(); if (textareaRef.current) wrapSelection(textareaRef.current, '_', setText); }}
-              className="w-8 h-8 flex items-center justify-center rounded text-[#616061] hover:bg-[#F8F8F8] hover:text-[#1D1C1D] transition-colors italic text-[14px]">i</button>
+              className="w-8 h-8 flex items-center justify-center rounded text-[#616061] hover:bg-[#F8F8F8] hover:text-[#1D1C1D] transition-colors"
+              style={{ fontStyle: 'italic', fontSize: '14px' }}>i</button>
             {/* Strikethrough */}
             <button title="打ち消し線 (~テキスト~)" onMouseDown={(e) => { e.preventDefault(); if (textareaRef.current) wrapSelection(textareaRef.current, '~', setText); }}
-              className="w-8 h-8 flex items-center justify-center rounded text-[#616061] hover:bg-[#F8F8F8] hover:text-[#1D1C1D] transition-colors text-[14px] line-through">S</button>
+              className="w-8 h-8 flex items-center justify-center rounded text-[#616061] hover:bg-[#F8F8F8] hover:text-[#1D1C1D] transition-colors"
+              style={{ textDecoration: 'line-through', fontSize: '14px' }}>S</button>
+            {/* Code */}
+            <button title="コード (`テキスト`)" onMouseDown={(e) => { e.preventDefault(); if (textareaRef.current) wrapSelection(textareaRef.current, '`', setText); }}
+              className="w-8 h-8 flex items-center justify-center rounded text-[#616061] hover:bg-[#F8F8F8] hover:text-[#1D1C1D] transition-colors"
+              style={{ fontFamily: 'monospace', fontSize: '13px', fontWeight: 600 }}>&lt;/&gt;</button>
 
             <div className="w-px h-4 bg-[#DDDDDD] mx-1" />
 

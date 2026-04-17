@@ -3,6 +3,7 @@ import { useAppStore } from '../../store/useAppStore';
 import { useThreads } from '../../hooks/useThreads';
 import { sendThreadReply } from '../../services';
 import { formatMessageTime } from '../../utils/formatDate';
+import { renderMarkdown } from '../../utils/markdown';
 
 export default function ThreadPanel() {
   const { user } = useAppStore((s) => s.auth);
@@ -101,7 +102,7 @@ export default function ThreadPanel() {
                   </span>
                 </div>
                 <p className="text-[14px] leading-relaxed whitespace-pre-wrap break-words" style={{ color: '#1D1C1D' }}>
-                  {parentMessage.text}
+                  {renderMarkdown(parentMessage.text)}
                 </p>
               </div>
             </div>
@@ -152,7 +153,7 @@ export default function ThreadPanel() {
                   </span>
                 </div>
                 <p className="text-[14px] leading-relaxed whitespace-pre-wrap break-words" style={{ color: '#1D1C1D' }}>
-                  {thread.text}
+                  {renderMarkdown(thread.text)}
                 </p>
               </div>
             </div>
