@@ -215,7 +215,8 @@ export async function sendMessage(
   channelId: string,
   text: string,
   user: User,
-  mentions: string[] = []
+  mentions: string[] = [],
+  dmRecipientUid?: string
 ): Promise<void> {
   const msgRef = await addDoc(collection(db, 'channels', channelId, 'messages'), {
     text,
@@ -227,10 +228,15 @@ export async function sendMessage(
     threadCount: 0,
   });
 
-  // Send notifications to mentioned users
-  for (const uid of mentions) {
-    if (uid !== user.uid) {
-      await addDoc(collection(db, 'notifications', uid, 'items'), {
+  // Notify mentioned users (ignore errors so message send doesn't fail)
+  const notifTargets = new Set(mentions.filter((uid) => uid !== user.uid));
+  // For DMs, also notify the recipient
+  if (dmRecipientUid && dmRecipientUid !== user.uid) {
+    notifTargets.add(dmRecipientUid);
+  }
+  await Promise.all(
+    Array.from(notifTargets).map((uid) =>
+      addDoc(collection(db, 'notifications', uid, 'items'), {
         channelId,
         messageId: msgRef.id,
         fromUser: user.uid,
@@ -238,9 +244,9 @@ export async function sendMessage(
         text: text.slice(0, 100),
         read: false,
         createdAt: serverTimestamp(),
-      });
-    }
-  }
+      }).catch(() => {})
+    )
+  );
 }
 
 export async function updateMessage(

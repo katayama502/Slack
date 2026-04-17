@@ -52,6 +52,13 @@ export default function MessageInput() {
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const channel = channels.find((c) => c.id === activeChannelId);
+  const isDM = channel?.name.startsWith('__dm__') ?? false;
+  const dmOtherUser = isDM
+    ? users.find((u) => u.uid !== user?.uid && channel?.members?.includes(u.uid))
+    : null;
+  const placeholder = isDM
+    ? `${dmOtherUser?.displayName ?? 'ダイレクトメッセージ'} にメッセージを送信`
+    : `#${channel?.name ?? ''} にメッセージを送信`;
 
   useEffect(() => {
     const unsub = subscribeToUsers((u) => setUsers(u));
@@ -129,7 +136,7 @@ export default function MessageInput() {
     // テキストエリアの高さをリセット
     if (textareaRef.current) textareaRef.current.style.height = '44px';
     try {
-      await sendMessage(activeChannelId, trimmed, user, mentions);
+      await sendMessage(activeChannelId, trimmed, user, mentions, dmOtherUser?.uid);
     } catch (err) {
       console.error('Send error:', err);
       setText(trimmed);
@@ -185,7 +192,7 @@ export default function MessageInput() {
           value={text}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
-          placeholder={`#${channel?.name ?? ''} にメッセージを送信`}
+          placeholder={placeholder}
           rows={1}
           disabled={sending}
           className="w-full px-4 pt-3 pb-1 text-[15px] text-[#1D1C1D] resize-none focus:outline-none bg-transparent leading-relaxed max-h-52 overflow-y-auto placeholder-[#616061]"
