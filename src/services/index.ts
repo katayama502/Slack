@@ -46,17 +46,14 @@ export function subscribeToAuthState(callback: (user: User | null) => void) {
       online: true,
       lastSeen: null,
     };
-    // Update online status in Firestore
-    try {
-      await setDoc(
-        doc(db, 'users', firebaseUser.uid),
-        { ...user, online: true, lastSeen: serverTimestamp() },
-        { merge: true }
-      );
-    } catch {
-      // ignore
-    }
+    // コールバックを先に呼び出してUIを即座に更新（Firestoreの完了を待たない）
     callback(user);
+    // Firestoreのオンライン状態更新は非同期で行う
+    setDoc(
+      doc(db, 'users', firebaseUser.uid),
+      { ...user, online: true, lastSeen: serverTimestamp() },
+      { merge: true }
+    ).catch(() => {});
   });
 }
 

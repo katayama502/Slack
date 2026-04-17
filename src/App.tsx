@@ -40,7 +40,10 @@ export default function App() {
   useEffect(() => {
     setAuthLoading(true);
     // リダイレクト後の認証結果を処理（本番環境のGoogle Sign-in用）
-    handleGoogleRedirectResult().catch(() => {});
+    handleGoogleRedirectResult().catch((err) => {
+      console.error('Redirect result error:', err);
+      setAuthLoading(false);
+    });
     const unsubscribe = subscribeToAuthState((u) => {
       setUser(u);
     });
