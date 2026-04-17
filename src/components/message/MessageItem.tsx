@@ -12,7 +12,6 @@ interface Props {
 
 const COMMON_REACTIONS = ['👍', '❤️', '😂', '🎉', '🔥', '👀'];
 
-// Parse @[displayName](uid) tokens into highlighted spans
 function renderMessageText(text: string): React.ReactNode[] {
   const parts = text.split(/(@\[[^\]]+\]\([^)]+\))/g);
   return parts.map((part, i) => {
@@ -21,7 +20,8 @@ function renderMessageText(text: string): React.ReactNode[] {
       return (
         <span
           key={i}
-          className="bg-yellow-100 text-yellow-800 rounded px-0.5 font-medium cursor-pointer hover:bg-yellow-200"
+          className="font-medium cursor-pointer hover:underline"
+          style={{ color: '#1264A3', background: '#E8F5FA', borderRadius: '3px', padding: '0 2px' }}
         >
           @{match[1]}
         </span>
@@ -77,9 +77,7 @@ export default function MessageItem({ message, isCompact, onThreadClick }: Props
       const hasReacted = users.includes(user.uid);
       return {
         ...prev,
-        [emoji]: hasReacted
-          ? users.filter((u) => u !== user.uid)
-          : [...users, user.uid],
+        [emoji]: hasReacted ? users.filter((u) => u !== user.uid) : [...users, user.uid],
       };
     });
     try {
@@ -92,30 +90,33 @@ export default function MessageItem({ message, isCompact, onThreadClick }: Props
 
   return (
     <div
-      className={`relative group flex gap-2 px-5 py-1 hover:bg-message-hover transition-colors ${
-        isCompact ? 'pt-0.5 pb-0.5' : 'pt-2'
+      className={`relative group flex gap-3 hover:bg-[#F8F8F8] transition-colors ${
+        isCompact ? 'px-5 py-0.5' : 'px-5 pt-2 pb-1'
       }`}
       onMouseEnter={() => setShowActions(true)}
-      onMouseLeave={() => {
-        setShowActions(false);
-        setShowReactionPicker(false);
-      }}
+      onMouseLeave={() => { setShowActions(false); setShowReactionPicker(false); }}
     >
-      {/* Avatar / time gutter */}
-      <div className="w-9 flex-shrink-0">
+      {/* Avatar / time gutter (36px wide) */}
+      <div className="w-9 flex-shrink-0 pt-0.5">
         {isCompact ? (
-          // compact: show time on hover
-          <span className="text-xs text-gray-400 leading-5 invisible group-hover:visible block text-right pr-0.5">
+          <span
+            className="text-[11px] text-[#616061] invisible group-hover:visible block text-right leading-5 mt-0.5"
+            style={{ paddingRight: '2px' }}
+          >
             {formatMessageTime(message.createdAt)}
           </span>
         ) : message.photoURL ? (
           <img
             src={message.photoURL}
             alt={message.displayName}
-            className="w-9 h-9 rounded-lg object-cover"
+            className="w-9 h-9 object-cover"
+            style={{ borderRadius: '4px' }}
           />
         ) : (
-          <div className="w-9 h-9 rounded-lg bg-accent flex items-center justify-center text-white text-sm font-bold">
+          <div
+            className="w-9 h-9 flex items-center justify-center text-white text-sm font-bold"
+            style={{ borderRadius: '4px', background: '#1164A3' }}
+          >
             {message.displayName[0]?.toUpperCase() ?? '?'}
           </div>
         )}
@@ -125,88 +126,93 @@ export default function MessageItem({ message, isCompact, onThreadClick }: Props
       <div className="flex-1 min-w-0">
         {!isCompact && (
           <div className="flex items-baseline gap-2 mb-0.5">
-            <span className="font-bold text-gray-900 text-sm">
+            <span className="font-bold text-[15px] text-[#1D1C1D] hover:underline cursor-pointer leading-snug">
               {message.displayName}
             </span>
-            <span className="text-xs text-gray-400">
+            <span className="text-[12px] text-[#616061]">
               {formatMessageTime(message.createdAt)}
             </span>
           </div>
         )}
 
         {editing ? (
-          <div className="mt-1">
+          <div className="mt-1 mr-4">
             <textarea
               value={editText}
               onChange={(e) => setEditText(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleEditSave();
-                }
-                if (e.key === 'Escape') {
-                  setEditing(false);
-                  setEditText(message.text);
-                }
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleEditSave(); }
+                if (e.key === 'Escape') { setEditing(false); setEditText(message.text); }
               }}
-              className="w-full border border-accent rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent resize-none"
+              className="w-full text-[14px] text-[#1D1C1D] resize-none focus:outline-none leading-relaxed"
+              style={{
+                border: '1px solid #1D9BD1',
+                borderRadius: '6px',
+                padding: '8px 12px',
+                boxShadow: '0 0 0 1px #1D9BD1',
+              }}
               rows={2}
               autoFocus
             />
-            <div className="flex gap-2 mt-1">
+            <div className="flex items-center gap-2 mt-1.5 text-[12px]">
+              <span className="text-[#616061]">
+                <kbd className="font-mono">Esc</kbd> でキャンセル・
+                <kbd className="font-mono">Enter</kbd> で保存
+              </span>
               <button
                 onClick={handleEditSave}
-                className="text-xs bg-accent text-white px-3 py-1 rounded hover:bg-blue-600"
+                className="px-3 py-1 rounded text-white text-[13px] font-medium"
+                style={{ background: '#007A5A' }}
               >
                 保存
               </button>
               <button
-                onClick={() => {
-                  setEditing(false);
-                  setEditText(message.text);
-                }}
-                className="text-xs text-gray-500 px-3 py-1 rounded hover:bg-gray-100"
+                onClick={() => { setEditing(false); setEditText(message.text); }}
+                className="px-3 py-1 rounded text-[#1D1C1D] text-[13px] font-medium border border-[#DDDDDD] hover:bg-gray-50"
               >
                 キャンセル
               </button>
             </div>
           </div>
         ) : (
-          <p className="text-sm text-gray-900 leading-relaxed break-words whitespace-pre-wrap">
+          <p className="text-[14px] text-[#1D1C1D] leading-relaxed break-words whitespace-pre-wrap">
             {renderMessageText(message.text)}
           </p>
         )}
 
         {/* Thread reply count */}
-        {(message.threadCount ?? 0) > 0 && (
+        {(message.threadCount ?? 0) > 0 && !editing && (
           <button
             onClick={() => onThreadClick(message.id)}
-            className="mt-1 flex items-center gap-1 text-accent text-xs hover:underline"
+            className="mt-1 flex items-center gap-1.5 text-[13px] font-medium hover:underline"
+            style={{ color: '#1264A3' }}
           >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
             </svg>
             {message.threadCount}件の返信
           </button>
         )}
 
         {/* Reactions */}
-        {Object.entries(reactions).some(([, users]) => users.length > 0) && (
-          <div className="flex flex-wrap gap-1 mt-1">
+        {Object.entries(reactions).some(([, u]) => u.length > 0) && (
+          <div className="flex flex-wrap gap-1 mt-1.5">
             {Object.entries(reactions).map(
-              ([emoji, users]) =>
-                users.length > 0 && (
+              ([emoji, u]) =>
+                u.length > 0 && (
                   <button
                     key={emoji}
                     onClick={() => handleReaction(emoji)}
-                    className={`flex items-center gap-0.5 text-xs px-2 py-0.5 rounded-full border transition-colors ${
-                      user && users.includes(user.uid)
-                        ? 'bg-blue-50 border-accent text-accent'
-                        : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
-                    }`}
+                    className="flex items-center gap-0.5 text-[13px] px-2 py-0.5 transition-colors"
+                    style={{
+                      borderRadius: '24px',
+                      border: user && u.includes(user.uid) ? '1px solid #1264A3' : '1px solid #DDDDDD',
+                      background: user && u.includes(user.uid) ? '#E8F5FA' : '#F8F8F8',
+                      color: user && u.includes(user.uid) ? '#1264A3' : '#616061',
+                    }}
                   >
                     <span>{emoji}</span>
-                    <span>{users.length}</span>
+                    <span className="font-medium ml-0.5">{u.length}</span>
                   </button>
                 )
             )}
@@ -216,23 +222,41 @@ export default function MessageItem({ message, isCompact, onThreadClick }: Props
 
       {/* Hover action toolbar */}
       {showActions && !editing && (
-        <div className="absolute right-4 -top-4 bg-white border border-gray-200 rounded-lg shadow-popover flex items-center gap-0.5 px-1 py-0.5 z-10">
-          {/* Reaction picker trigger */}
+        <div
+          className="absolute right-5 -top-4 flex items-center gap-0.5 px-1 py-0.5 z-10"
+          style={{
+            background: '#FFFFFF',
+            border: '1px solid #DDDDDD',
+            borderRadius: '6px',
+            boxShadow: '0 1px 4px rgba(0,0,0,0.12)',
+          }}
+        >
+          {/* Reaction */}
           <div className="relative">
             <button
               onClick={() => setShowReactionPicker((p) => !p)}
-              title="リアクション"
-              className="w-7 h-7 flex items-center justify-center rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors text-base"
+              title="リアクションを追加"
+              className="w-8 h-8 flex items-center justify-center rounded hover:bg-[#F8F8F8] text-[#616061] hover:text-[#1D1C1D] transition-colors text-base"
             >
-              😊
+              <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.182 15.182a4.5 4.5 0 01-6.364 0M21 12a9 9 0 11-18 0 9 9 0 0118 0zM9.75 9.75c0 .414-.168.75-.375.75S9 10.164 9 9.75 9.168 9 9.375 9s.375.336.375.75zm-.375 0h.008v.015h-.008V9.75zm5.625 0c0 .414-.168.75-.375.75s-.375-.336-.375-.75.168-.75.375-.75.375.336.375.75zm-.375 0h.008v.015h-.008V9.75z" />
+              </svg>
             </button>
             {showReactionPicker && (
-              <div className="absolute right-0 top-8 bg-white border border-gray-200 rounded-lg shadow-popover flex gap-1 p-1.5 z-20">
+              <div
+                className="absolute right-0 top-9 flex gap-0.5 p-1.5 z-20"
+                style={{
+                  background: '#FFFFFF',
+                  border: '1px solid #DDDDDD',
+                  borderRadius: '6px',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                }}
+              >
                 {COMMON_REACTIONS.map((emoji) => (
                   <button
                     key={emoji}
                     onClick={() => handleReaction(emoji)}
-                    className="w-7 h-7 flex items-center justify-center rounded hover:bg-gray-100 text-base"
+                    className="w-8 h-8 flex items-center justify-center rounded hover:bg-[#F8F8F8] text-[18px] transition-colors"
                   >
                     {emoji}
                   </button>
@@ -241,14 +265,14 @@ export default function MessageItem({ message, isCompact, onThreadClick }: Props
             )}
           </div>
 
-          {/* Thread */}
+          {/* Thread reply */}
           <button
             onClick={() => onThreadClick(message.id)}
             title="スレッドで返信"
-            className="w-7 h-7 flex items-center justify-center rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded hover:bg-[#F8F8F8] text-[#616061] hover:text-[#1D1C1D] transition-colors"
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242m9.345-8.334a2.126 2.126 0 00-.476-.095 48.64 48.64 0 00-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0011.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" />
             </svg>
           </button>
 
@@ -256,11 +280,11 @@ export default function MessageItem({ message, isCompact, onThreadClick }: Props
           {isOwner && (
             <button
               onClick={() => setEditing(true)}
-              title="編集"
-              className="w-7 h-7 flex items-center justify-center rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
+              title="メッセージを編集"
+              className="w-8 h-8 flex items-center justify-center rounded hover:bg-[#F8F8F8] text-[#616061] hover:text-[#1D1C1D] transition-colors"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+              <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
               </svg>
             </button>
           )}
@@ -269,11 +293,11 @@ export default function MessageItem({ message, isCompact, onThreadClick }: Props
           {isOwner && (
             <button
               onClick={handleDelete}
-              title="削除"
-              className="w-7 h-7 flex items-center justify-center rounded hover:bg-red-50 text-gray-500 hover:text-red-600 transition-colors"
+              title="メッセージを削除"
+              className="w-8 h-8 flex items-center justify-center rounded hover:bg-red-50 text-[#616061] hover:text-red-600 transition-colors"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
               </svg>
             </button>
           )}

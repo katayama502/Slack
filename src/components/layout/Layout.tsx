@@ -34,12 +34,17 @@ export default function Layout() {
             <MessageInput />
           </>
         ) : (
-          <div className="flex flex-col items-center justify-center h-full text-gray-400">
-            <div className="text-6xl mb-4">#</div>
-            <p className="text-lg font-medium text-gray-500">
+          <div className="flex flex-col items-center justify-center h-full gap-3" style={{ background: '#F8F8F8' }}>
+            <div
+              className="w-16 h-16 flex items-center justify-center text-white font-bold text-3xl"
+              style={{ borderRadius: '12px', background: '#3F0E40' }}
+            >
+              #
+            </div>
+            <p className="text-[18px] font-bold text-[#1D1C1D]">
               チャンネルを選択してください
             </p>
-            <p className="text-sm mt-1">
+            <p className="text-[14px] text-[#616061]">
               左のサイドバーからチャンネルを選んで会話を始めましょう
             </p>
           </div>

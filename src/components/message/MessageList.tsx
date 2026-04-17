@@ -102,10 +102,19 @@ export default function MessageList() {
 
   if (messages.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center text-gray-400 gap-2">
-        <div className="text-5xl">#</div>
-        <p className="font-semibold text-gray-500">まだメッセージがありません</p>
-        <p className="text-sm">最初のメッセージを送りましょう！</p>
+      <div className="flex-1 flex flex-col justify-end px-5 pb-4">
+        <div
+          className="w-12 h-12 flex items-center justify-center rounded mb-3 text-white font-bold text-2xl"
+          style={{ background: '#3F0E40' }}
+        >
+          #
+        </div>
+        <h3 className="text-[22px] font-bold text-[#1D1C1D] mb-1">
+          このチャンネルへようこそ
+        </h3>
+        <p className="text-[15px] text-[#616061]">
+          このチャンネルの最初のメッセージです。ぜひ会話を始めてみましょう！
+        </p>
       </div>
     );
   }
@@ -141,12 +150,20 @@ export default function MessageList() {
               }}
             >
               {row.type === 'divider' ? (
-                <div className="flex items-center gap-3 px-5 py-2">
-                  <hr className="flex-1 border-gray-200" />
-                  <span className="text-xs font-semibold text-gray-500 bg-white px-2">
+                <div className="flex items-center gap-3 px-5 py-3">
+                  <hr className="flex-1" style={{ borderColor: '#DDDDDD' }} />
+                  <span
+                    className="text-[12px] font-bold px-3 py-0.5"
+                    style={{
+                      color: '#616061',
+                      border: '1px solid #DDDDDD',
+                      borderRadius: '24px',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
                     {row.date}
                   </span>
-                  <hr className="flex-1 border-gray-200" />
+                  <hr className="flex-1" style={{ borderColor: '#DDDDDD' }} />
                 </div>
               ) : (
                 <MessageItem
