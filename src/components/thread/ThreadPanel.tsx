@@ -18,10 +18,8 @@ export default function ThreadPanel() {
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Find parent message
   const parentMessage = messages.find((m) => m.id === threadPanelMessageId);
 
-  // Auto scroll to bottom on new thread replies
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [threads.length]);
@@ -48,17 +46,27 @@ export default function ThreadPanel() {
     }
   };
 
+  const hasText = replyText.trim().length > 0;
+
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="flex flex-col h-full" style={{ background: '#FFFFFF', borderLeft: '1px solid #E8E8E8' }}>
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-channel-border flex-shrink-0">
-        <h3 className="font-bold text-gray-900 text-base">スレッド</h3>
+      <div
+        className="flex items-center justify-between px-4 flex-shrink-0"
+        style={{ minHeight: '49px', borderBottom: '1px solid #E8E8E8' }}
+      >
+        <h3 className="font-bold text-[15px]" style={{ color: '#1D1C1D' }}>スレッド</h3>
         <button
           onClick={closeThreadPanel}
           title="閉じる"
-          className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors text-xl"
+          className="w-8 h-8 flex items-center justify-center rounded transition-colors"
+          style={{ color: '#616061' }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = '#F8F8F8'; e.currentTarget.style.color = '#1D1C1D'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#616061'; }}
         >
-          &times;
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
         </button>
       </div>
 
@@ -66,29 +74,33 @@ export default function ThreadPanel() {
       <div className="flex-1 overflow-y-auto">
         {/* Parent message */}
         {parentMessage && (
-          <div className="px-4 py-4 border-b border-channel-border">
-            <div className="flex gap-2">
+          <div className="px-4 py-4" style={{ borderBottom: '1px solid #E8E8E8' }}>
+            <div className="flex gap-3">
               {parentMessage.photoURL ? (
                 <img
                   src={parentMessage.photoURL}
                   alt={parentMessage.displayName}
-                  className="w-9 h-9 rounded-lg object-cover flex-shrink-0"
+                  className="w-9 h-9 object-cover flex-shrink-0"
+                  style={{ borderRadius: '4px' }}
                 />
               ) : (
-                <div className="w-9 h-9 rounded-lg bg-accent flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                <div
+                  className="w-9 h-9 flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
+                  style={{ borderRadius: '4px', background: '#1164A3' }}
+                >
                   {parentMessage.displayName[0]?.toUpperCase() ?? '?'}
                 </div>
               )}
-              <div>
+              <div className="flex-1 min-w-0">
                 <div className="flex items-baseline gap-2 mb-0.5">
-                  <span className="font-bold text-gray-900 text-sm">
+                  <span className="font-bold text-[15px]" style={{ color: '#1D1C1D' }}>
                     {parentMessage.displayName}
                   </span>
-                  <span className="text-xs text-gray-400">
+                  <span className="text-[12px]" style={{ color: '#616061' }}>
                     {formatMessageTime(parentMessage.createdAt)}
                   </span>
                 </div>
-                <p className="text-sm text-gray-900 whitespace-pre-wrap break-words">
+                <p className="text-[14px] leading-relaxed whitespace-pre-wrap break-words" style={{ color: '#1D1C1D' }}>
                   {parentMessage.text}
                 </p>
               </div>
@@ -96,41 +108,50 @@ export default function ThreadPanel() {
           </div>
         )}
 
-        {/* Replies count */}
-        <div className="px-4 py-2">
+        {/* Reply count */}
+        <div className="px-4 py-2.5">
           <div className="flex items-center gap-3">
-            <span className="text-xs font-semibold text-gray-500">
+            <span className="text-[12px] font-semibold" style={{ color: '#616061' }}>
               {threads.length}件の返信
             </span>
-            <hr className="flex-1 border-gray-200" />
+            <hr className="flex-1" style={{ borderColor: '#E8E8E8' }} />
           </div>
         </div>
 
         {/* Thread replies */}
         <div className="pb-4">
           {threads.map((thread) => (
-            <div key={thread.id} className="flex gap-2 px-4 py-2 hover:bg-message-hover transition-colors group">
+            <div
+              key={thread.id}
+              className="flex gap-3 px-4 py-2 transition-colors group"
+              onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = '#F8F8F8'; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+            >
               {thread.photoURL ? (
                 <img
                   src={thread.photoURL}
                   alt={thread.displayName}
-                  className="w-8 h-8 rounded-lg object-cover flex-shrink-0"
+                  className="w-8 h-8 object-cover flex-shrink-0"
+                  style={{ borderRadius: '4px' }}
                 />
               ) : (
-                <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                <div
+                  className="w-8 h-8 flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                  style={{ borderRadius: '4px', background: '#1164A3' }}
+                >
                   {thread.displayName[0]?.toUpperCase() ?? '?'}
                 </div>
               )}
               <div className="flex-1 min-w-0">
                 <div className="flex items-baseline gap-2 mb-0.5">
-                  <span className="font-bold text-gray-900 text-sm">
+                  <span className="font-bold text-[14px]" style={{ color: '#1D1C1D' }}>
                     {thread.displayName}
                   </span>
-                  <span className="text-xs text-gray-400">
+                  <span className="text-[12px]" style={{ color: '#616061' }}>
                     {formatMessageTime(thread.createdAt)}
                   </span>
                 </div>
-                <p className="text-sm text-gray-900 whitespace-pre-wrap break-words">
+                <p className="text-[14px] leading-relaxed whitespace-pre-wrap break-words" style={{ color: '#1D1C1D' }}>
                   {thread.text}
                 </p>
               </div>
@@ -142,8 +163,15 @@ export default function ThreadPanel() {
       </div>
 
       {/* Reply input */}
-      <div className="px-4 py-3 border-t border-channel-border flex-shrink-0">
-        <div className="border border-gray-300 rounded-lg focus-within:border-accent focus-within:ring-1 focus-within:ring-accent transition-colors">
+      <div className="px-4 py-3 flex-shrink-0" style={{ borderTop: '1px solid #E8E8E8' }}>
+        <div
+          className="transition-all"
+          style={{
+            border: '1px solid #DDDDDD',
+            borderRadius: '8px',
+            boxShadow: hasText ? '0 0 0 1px #1D1C1D' : undefined,
+          }}
+        >
           <textarea
             value={replyText}
             onChange={(e) => setReplyText(e.target.value)}
@@ -151,7 +179,8 @@ export default function ThreadPanel() {
             placeholder="返信を入力..."
             rows={2}
             disabled={sending}
-            className="w-full px-3 py-2 text-sm text-gray-900 resize-none focus:outline-none bg-transparent leading-relaxed"
+            className="w-full px-3 pt-3 pb-1 text-[14px] resize-none focus:outline-none bg-transparent leading-relaxed placeholder-[#616061]"
+            style={{ color: '#1D1C1D', minHeight: '44px' }}
             onInput={(e) => {
               const el = e.currentTarget;
               el.style.height = 'auto';
@@ -161,12 +190,14 @@ export default function ThreadPanel() {
           <div className="flex items-center justify-end px-2 pb-2">
             <button
               onClick={handleSend}
-              disabled={!replyText.trim() || sending}
-              className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${
-                replyText.trim() && !sending
-                  ? 'bg-accent text-white hover:bg-blue-600'
-                  : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-              }`}
+              disabled={!hasText || sending}
+              title="送信 (Enter)"
+              className="w-8 h-8 flex items-center justify-center rounded transition-colors"
+              style={{
+                background: hasText && !sending ? '#007A5A' : '#DDDDDD',
+                color: hasText && !sending ? '#FFFFFF' : '#999999',
+                cursor: hasText && !sending ? 'pointer' : 'not-allowed',
+              }}
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
@@ -174,6 +205,10 @@ export default function ThreadPanel() {
             </button>
           </div>
         </div>
+        <p className="text-[12px] mt-1 px-1" style={{ color: '#616061' }}>
+          <kbd className="font-mono px-1 rounded" style={{ background: '#F8F8F8', border: '1px solid #DDDDDD' }}>Enter</kbd> で送信・
+          <kbd className="font-mono px-1 rounded" style={{ background: '#F8F8F8', border: '1px solid #DDDDDD' }}>Shift+Enter</kbd> で改行
+        </p>
       </div>
     </div>
   );
