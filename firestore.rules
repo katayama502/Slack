@@ -3,21 +3,14 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ─────────────────────────────────────────────
-    // Helper functions
-    // ─────────────────────────────────────────────
-
-    // 認証済みユーザーかどうか
     function isAuthenticated() {
       return request.auth != null;
     }
 
-    // リクエストしているユーザーが指定した uid と一致するか
     function isOwner(uid) {
       return isAuthenticated() && request.auth.uid == uid;
     }
 
-    // チャンネルの members 配列にリクエストユーザーが含まれるか
     function isChannelMember(channelId) {
       return isAuthenticated() &&
         request.auth.uid in get(/databases/$(database)/documents/channels/$(channelId)).data.members;
@@ -28,43 +21,45 @@ service cloud.firestore {
     // ─────────────────────────────────────────────
     match /channels/{channelId} {
 
-      // 読み取り: チャンネルメンバーのみ
-      allow read: if isChannelMember(channelId);
+      // 読み取り: 認証済みユーザーなら誰でも可（チャンネル一覧表示のため）
+      allow read: if isAuthenticated();
 
-      // 作成: 認証済みユーザーなら誰でも作成可能（自分を members に含める想定）
+      // 作成: 認証済みユーザー（自分を members に含める）
       allow create: if isAuthenticated()
         && request.resource.data.createdBy == request.auth.uid
         && request.auth.uid in request.resource.data.members;
 
-      // 更新: チャンネルメンバーのみ（参加・退出を含む）、createdBy/createdAt の書き換えは禁止
-      allow update: if isChannelMember(channelId)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'description', 'members']);
+      // 更新:
+      //   - メンバーは name/description/members を更新可
+      //   - 非メンバーでも「自分自身を members に追加する（参加）」のみ許可（DM除く）
+      allow update: if isAuthenticated() && (
+        (
+          isChannelMember(channelId) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'description', 'members'])
+        ) || (
+          !resource.data.get('isDM', false) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members']) &&
+          request.resource.data.members.hasAll(resource.data.members) &&
+          request.resource.data.members.size() == resource.data.members.size() + 1 &&
+          request.auth.uid in request.resource.data.members
+        )
+      );
 
       // 削除: 作成者のみ
       allow delete: if isAuthenticated()
         && resource.data.createdBy == request.auth.uid;
 
       // ─────────────────────────────────────────
-      // channels/{channelId}/messages/{messageId}
+      // messages
       // ─────────────────────────────────────────
       match /messages/{messageId} {
 
-        // 読み書き: チャンネルメンバーのみ
         allow read, create: if isChannelMember(channelId);
-
-        // 更新・削除: 投稿者本人のみ
         allow update, delete: if isAuthenticated()
           && resource.data.uid == request.auth.uid;
 
-        // ─────────────────────────────────────────
-        // channels/{channelId}/messages/{messageId}/threads/{threadId}
-        // ─────────────────────────────────────────
         match /threads/{threadId} {
-
-          // 読み書き: チャンネルメンバーのみ
           allow read, create: if isChannelMember(channelId);
-
-          // 更新・削除: 投稿者本人のみ
           allow update, delete: if isAuthenticated()
             && resource.data.uid == request.auth.uid;
         }
@@ -75,20 +70,14 @@ service cloud.firestore {
     // users/{userId}
     // ─────────────────────────────────────────────
     match /users/{userId} {
-
-      // 読み取り: 認証済みユーザーなら誰でも可
       allow read: if isAuthenticated();
-
-      // 書き込み: 本人のみ
       allow write: if isOwner(userId);
     }
 
     // ─────────────────────────────────────────────
-    // notifications/{userId}/items/{notifId}
+    // notifications
     // ─────────────────────────────────────────────
     match /notifications/{userId}/items/{notifId} {
-
-      // 読み書き: 本人のみ
       allow read, write: if isOwner(userId);
     }
   }
