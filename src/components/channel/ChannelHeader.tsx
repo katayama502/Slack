@@ -3,7 +3,7 @@ import { useAppStore } from '../../store/useAppStore';
 import { subscribeToUsers } from '../../services';
 import type { User } from '../../types';
 
-export default function ChannelHeader() {
+export default function ChannelHeader({ onMenuClick }: { onMenuClick?: () => void }) {
   const channels = useAppStore((s) => s.channels);
   const activeChannelId = useAppStore((s) => s.activeChannelId);
   const { user } = useAppStore((s) => s.auth);
@@ -55,6 +55,20 @@ export default function ChannelHeader() {
     >
       {/* Left */}
       <div className="flex items-center gap-2 min-w-0">
+        {/* Mobile: hamburger */}
+        {onMenuClick && (
+          <button
+            onClick={onMenuClick}
+            className="flex md:hidden w-8 h-8 items-center justify-center rounded flex-shrink-0 transition-colors"
+            style={{ color: '#616061' }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = '#F8F8F8'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+        )}
         <div className="flex items-center gap-1.5 min-w-0">
           {isDM ? (
             dmOtherUser?.photoURL

@@ -17,6 +17,10 @@ interface ExtendedStore extends AppStore {
 
   // サイドバートグル
   toggleSidebar: () => void
+
+  // モバイル用ドロワー
+  mobileSidebarOpen: boolean
+  setMobileSidebarOpen: (open: boolean) => void
 }
 
 export const useAppStore = create<ExtendedStore>((set, _get) => ({
@@ -156,6 +160,8 @@ export const useAppStore = create<ExtendedStore>((set, _get) => ({
   notificationsPanelOpen: false,
   setSidebarOpen: (open: boolean) => set({ sidebarOpen: open }),
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
+  mobileSidebarOpen: false,
+  setMobileSidebarOpen: (open: boolean) => set({ mobileSidebarOpen: open }),
   openThreadPanel: (messageId: string) =>
     set({ threadPanelMessageId: messageId, activeThreadMessageId: messageId }),
   closeThreadPanel: () =>

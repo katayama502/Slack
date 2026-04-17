@@ -5,6 +5,7 @@ import AddChannelModal from './AddChannelModal';
 import type { User } from '../../types';
 
 export default function Sidebar() {
+  const setMobileSidebarOpen = useAppStore((s) => s.setMobileSidebarOpen);
   const channels = useAppStore((s) => s.channels);
   const activeChannelId = useAppStore((s) => s.activeChannelId);
   const setActiveChannel = useAppStore((s) => s.setActiveChannel);
@@ -65,14 +66,26 @@ export default function Sidebar() {
             <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
           </svg>
         </div>
-        <button
-          title="新規メッセージ"
-          className="w-7 h-7 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 transition-colors flex-shrink-0"
-        >
-          <svg className="w-[15px] h-[15px] text-white" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-          </svg>
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            title="新規メッセージ"
+            className="w-7 h-7 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 transition-colors flex-shrink-0"
+          >
+            <svg className="w-[15px] h-[15px] text-white" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+            </svg>
+          </button>
+          {/* Mobile: close drawer button */}
+          <button
+            onClick={() => setMobileSidebarOpen(false)}
+            className="md:hidden w-7 h-7 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 transition-colors flex-shrink-0"
+            title="閉じる"
+          >
+            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* ── Scrollable nav ── */}

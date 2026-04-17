@@ -56,6 +56,7 @@ export default function MessageInput() {
   const [suggestIndex, setSuggestIndex] = useState(0);
   const [atPos, setAtPos] = useState<number | null>(null);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const [toolbarExpanded, setToolbarExpanded] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const channel = channels.find((c) => c.id === activeChannelId);
@@ -214,49 +215,67 @@ export default function MessageInput() {
         {/* ツールバー */}
         <div className="flex items-center justify-between px-2 pb-2 pt-1">
           <div className="flex items-center gap-0.5">
-            {/* Bold */}
-            <button title="太字 (*テキスト*)" onMouseDown={(e) => { e.preventDefault(); if (textareaRef.current) wrapSelection(textareaRef.current, '*', setText); }}
-              className="w-8 h-8 flex items-center justify-center rounded text-[#616061] hover:bg-[#F8F8F8] hover:text-[#1D1C1D] transition-colors"
-              style={{ fontWeight: 700, fontSize: '14px' }}>B</button>
-            {/* Italic */}
-            <button title="斜体 (_テキスト_)" onMouseDown={(e) => { e.preventDefault(); if (textareaRef.current) wrapSelection(textareaRef.current, '_', setText); }}
-              className="w-8 h-8 flex items-center justify-center rounded text-[#616061] hover:bg-[#F8F8F8] hover:text-[#1D1C1D] transition-colors"
-              style={{ fontStyle: 'italic', fontSize: '14px' }}>i</button>
-            {/* Strikethrough */}
-            <button title="打ち消し線 (~テキスト~)" onMouseDown={(e) => { e.preventDefault(); if (textareaRef.current) wrapSelection(textareaRef.current, '~', setText); }}
-              className="w-8 h-8 flex items-center justify-center rounded text-[#616061] hover:bg-[#F8F8F8] hover:text-[#1D1C1D] transition-colors"
-              style={{ textDecoration: 'line-through', fontSize: '14px' }}>S</button>
-            {/* Code */}
-            <button title="コード (`テキスト`)" onMouseDown={(e) => { e.preventDefault(); if (textareaRef.current) wrapSelection(textareaRef.current, '`', setText); }}
-              className="w-8 h-8 flex items-center justify-center rounded text-[#616061] hover:bg-[#F8F8F8] hover:text-[#1D1C1D] transition-colors"
-              style={{ fontFamily: 'monospace', fontSize: '13px', fontWeight: 600 }}>&lt;/&gt;</button>
-
-            <div className="w-px h-4 bg-[#DDDDDD] mx-1" />
-
-            {/* List */}
-            <button title="箇条書き" onMouseDown={(e) => {
-              e.preventDefault();
-              const el = textareaRef.current;
-              if (!el) return;
-              const pos = el.selectionStart;
-              const newText = text.slice(0, pos) + '• ' + text.slice(pos);
-              setText(newText);
-              setTimeout(() => { el.focus(); el.setSelectionRange(pos + 2, pos + 2); }, 0);
-            }} className="w-8 h-8 flex items-center justify-center rounded text-[#616061] hover:bg-[#F8F8F8] hover:text-[#1D1C1D] transition-colors">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+            {/* Mobile: toggle formatting toolbar */}
+            <button
+              title="書式設定"
+              onClick={() => setToolbarExpanded((p) => !p)}
+              className="md:hidden w-8 h-8 flex items-center justify-center rounded transition-colors"
+              style={{
+                color: toolbarExpanded ? '#1D1C1D' : '#616061',
+                background: toolbarExpanded ? '#F8F8F8' : 'transparent',
+              }}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25H12" />
               </svg>
             </button>
 
-            <div className="w-px h-4 bg-[#DDDDDD] mx-1" />
+            {/* Formatting buttons — always visible on desktop, toggle on mobile */}
+            <div className={`items-center gap-0.5 ${toolbarExpanded ? 'flex' : 'hidden md:flex'}`}>
+              {/* Bold */}
+              <button title="太字 (*テキスト*)" onMouseDown={(e) => { e.preventDefault(); if (textareaRef.current) wrapSelection(textareaRef.current, '*', setText); }}
+                className="w-8 h-8 flex items-center justify-center rounded text-[#616061] hover:bg-[#F8F8F8] hover:text-[#1D1C1D] transition-colors"
+                style={{ fontWeight: 700, fontSize: '14px' }}>B</button>
+              {/* Italic */}
+              <button title="斜体 (_テキスト_)" onMouseDown={(e) => { e.preventDefault(); if (textareaRef.current) wrapSelection(textareaRef.current, '_', setText); }}
+                className="w-8 h-8 flex items-center justify-center rounded text-[#616061] hover:bg-[#F8F8F8] hover:text-[#1D1C1D] transition-colors"
+                style={{ fontStyle: 'italic', fontSize: '14px' }}>i</button>
+              {/* Strikethrough */}
+              <button title="打ち消し線 (~テキスト~)" onMouseDown={(e) => { e.preventDefault(); if (textareaRef.current) wrapSelection(textareaRef.current, '~', setText); }}
+                className="w-8 h-8 flex items-center justify-center rounded text-[#616061] hover:bg-[#F8F8F8] hover:text-[#1D1C1D] transition-colors"
+                style={{ textDecoration: 'line-through', fontSize: '14px' }}>S</button>
+              {/* Code */}
+              <button title="コード (`テキスト`)" onMouseDown={(e) => { e.preventDefault(); if (textareaRef.current) wrapSelection(textareaRef.current, '`', setText); }}
+                className="w-8 h-8 flex items-center justify-center rounded text-[#616061] hover:bg-[#F8F8F8] hover:text-[#1D1C1D] transition-colors"
+                style={{ fontFamily: 'monospace', fontSize: '13px', fontWeight: 600 }}>&lt;/&gt;</button>
 
-            {/* Emoji picker */}
+              <div className="w-px h-4 bg-[#DDDDDD] mx-1" />
+
+              {/* List */}
+              <button title="箇条書き" onMouseDown={(e) => {
+                e.preventDefault();
+                const el = textareaRef.current;
+                if (!el) return;
+                const pos = el.selectionStart;
+                const newText = text.slice(0, pos) + '• ' + text.slice(pos);
+                setText(newText);
+                setTimeout(() => { el.focus(); el.setSelectionRange(pos + 2, pos + 2); }, 0);
+              }} className="w-8 h-8 flex items-center justify-center rounded text-[#616061] hover:bg-[#F8F8F8] hover:text-[#1D1C1D] transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+                </svg>
+              </button>
+
+              <div className="w-px h-4 bg-[#DDDDDD] mx-1" />
+            </div>
+
+            {/* Emoji picker — always visible */}
             <button title="絵文字" onClick={() => setEmojiPickerOpen((p) => !p)}
               className={`w-8 h-8 flex items-center justify-center rounded transition-colors text-[16px] ${emojiPickerOpen ? 'bg-[#F8F8F8] text-[#1D1C1D]' : 'text-[#616061] hover:bg-[#F8F8F8] hover:text-[#1D1C1D]'}`}>
               😊
             </button>
 
-            {/* Mention */}
+            {/* Mention — always visible */}
             <button title="メンション (@)" onMouseDown={(e) => {
               e.preventDefault();
               const el = textareaRef.current;
@@ -281,7 +300,7 @@ export default function MessageInput() {
           </button>
         </div>
       </div>
-      <p className="text-[12px] text-[#616061] mt-1 px-1">
+      <p className="hidden md:block text-[12px] text-[#616061] mt-1 px-1">
         <kbd className="font-mono bg-[#F8F8F8] border border-[#DDDDDD] rounded px-1">Enter</kbd> で送信・
         <kbd className="font-mono bg-[#F8F8F8] border border-[#DDDDDD] rounded px-1">Shift+Enter</kbd> で改行
       </p>

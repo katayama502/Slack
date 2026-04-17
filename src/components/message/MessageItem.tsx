@@ -68,6 +68,16 @@ export default function MessageItem({ message, isCompact, onThreadClick }: Props
       onMouseEnter={() => setShowActions(true)}
       onMouseLeave={() => { setShowActions(false); setShowReactionPicker(false); }}
     >
+      {/* Mobile: always-visible ⋮ action trigger */}
+      {!editing && (
+        <button
+          onClick={() => setShowActions((p) => !p)}
+          className="md:hidden absolute right-3 top-1 w-7 h-7 flex items-center justify-center rounded text-[#AAAAAA] hover:bg-[#F0F0F0] hover:text-[#616061] transition-colors z-10"
+          style={{ fontSize: '18px', lineHeight: 1 }}
+        >
+          ⋮
+        </button>
+      )}
       {/* Avatar / time gutter */}
       <div className="w-9 flex-shrink-0 pt-0.5">
         {isCompact ? (
@@ -153,11 +163,11 @@ export default function MessageItem({ message, isCompact, onThreadClick }: Props
         )}
       </div>
 
-      {/* Hover action toolbar */}
+      {/* Action toolbar — hover on desktop, tap ⋮ on mobile */}
       {showActions && !editing && (
         <div
-          className="absolute right-5 -top-4 flex items-center gap-0.5 px-1 py-0.5 z-10"
-          style={{ background: '#FFFFFF', border: '1px solid #DDDDDD', borderRadius: '6px', boxShadow: '0 1px 4px rgba(0,0,0,0.12)' }}
+          className="absolute right-5 -top-4 md:-top-4 flex items-center gap-0.5 px-1 py-0.5 z-20"
+          style={{ background: '#FFFFFF', border: '1px solid #DDDDDD', borderRadius: '6px', boxShadow: '0 1px 8px rgba(0,0,0,0.15)' }}
         >
           {/* Reaction picker */}
           <div className="relative">
