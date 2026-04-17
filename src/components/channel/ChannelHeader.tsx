@@ -1,13 +1,29 @@
+import { useState, useEffect } from 'react';
 import { useAppStore } from '../../store/useAppStore';
+import { subscribeToUsers } from '../../services';
+import type { User } from '../../types';
 
 export default function ChannelHeader() {
   const channels = useAppStore((s) => s.channels);
   const activeChannelId = useAppStore((s) => s.activeChannelId);
+  const { user } = useAppStore((s) => s.auth);
   const channel = channels.find((c) => c.id === activeChannelId);
+  const [users, setUsers] = useState<User[]>([]);
+
+  useEffect(() => {
+    const unsub = subscribeToUsers((u) => setUsers(u));
+    return () => unsub();
+  }, []);
 
   if (!channel) return null;
 
+  const isDM = channel.name.startsWith('__dm__');
+  const dmOtherUser = isDM
+    ? users.find((u) => u.uid !== user?.uid && channel.members?.includes(u.uid))
+    : null;
+
   const memberCount = channel.members?.length ?? 0;
+  const displayName = isDM ? (dmOtherUser?.displayName ?? 'ダイレクトメッセージ') : channel.name;
 
   return (
     <header
@@ -16,11 +32,24 @@ export default function ChannelHeader() {
     >
       {/* Left */}
       <div className="flex items-center gap-2 min-w-0">
-        <div className="flex items-center gap-1 min-w-0">
-          <span className="text-gray-700 font-bold text-[18px] leading-none flex-shrink-0">#</span>
-          <h2 className="text-[15px] font-bold text-gray-900 truncate">{channel.name}</h2>
+        <div className="flex items-center gap-1.5 min-w-0">
+          {isDM ? (
+            dmOtherUser?.photoURL ? (
+              <img src={dmOtherUser.photoURL} alt="" className="w-6 h-6 rounded object-cover flex-shrink-0" />
+            ) : (
+              <div className="w-6 h-6 rounded flex items-center justify-center text-white text-xs font-bold flex-shrink-0" style={{ background: '#1164A3' }}>
+                {displayName[0].toUpperCase()}
+              </div>
+            )
+          ) : (
+            <span className="text-gray-700 font-bold text-[18px] leading-none flex-shrink-0">#</span>
+          )}
+          <h2 className="text-[15px] font-bold text-gray-900 truncate">{displayName}</h2>
+          {isDM && dmOtherUser?.online && (
+            <span className="w-2 h-2 rounded-full bg-[#007A5A] flex-shrink-0" />
+          )}
         </div>
-        {channel.description && (
+        {!isDM && channel.description && (
           <div className="flex items-center gap-2 min-w-0 hidden sm:flex">
             <div className="w-px h-4 bg-gray-300 flex-shrink-0" />
             <p className="text-[13px] text-gray-500 truncate max-w-xs">{channel.description}</p>

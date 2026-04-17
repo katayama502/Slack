@@ -7,6 +7,7 @@ import {
   onSnapshot,
   query,
   orderBy,
+  where,
   serverTimestamp,
   Timestamp,
   getDocs,
@@ -108,6 +109,35 @@ export function subscribeToUsers(callback: (users: User[]) => void) {
     }));
     callback(users);
   });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Direct Messages
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** DM チャンネル名 (UID 2つをソートして結合) */
+export function getDMChannelName(uid1: string, uid2: string): string {
+  return `__dm__${[uid1, uid2].sort().join('__')}`;
+}
+
+/** DM チャンネルを取得または作成して channelId を返す */
+export async function getOrCreateDMChannel(
+  currentUid: string,
+  otherUid: string
+): Promise<string> {
+  const dmName = getDMChannelName(currentUid, otherUid);
+  const q = query(collection(db, 'channels'), where('name', '==', dmName));
+  const snap = await getDocs(q);
+  if (!snap.empty) return snap.docs[0].id;
+  const ref = await addDoc(collection(db, 'channels'), {
+    name: dmName,
+    description: '',
+    createdBy: currentUid,
+    createdAt: serverTimestamp(),
+    members: [currentUid, otherUid],
+    isDM: true,
+  });
+  return ref.id;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

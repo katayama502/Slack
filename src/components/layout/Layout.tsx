@@ -1,4 +1,5 @@
 import { useAppStore } from '../../store/useAppStore';
+import NavRail from '../sidebar/NavRail';
 import Sidebar from '../sidebar/Sidebar';
 import ChannelHeader from '../channel/ChannelHeader';
 import MessageList from '../message/MessageList';
@@ -11,22 +12,25 @@ export default function Layout() {
 
   return (
     <div
-      className="flex h-screen overflow-hidden bg-white"
+      className="flex h-screen overflow-hidden"
       style={{
         display: 'grid',
         gridTemplateColumns: threadPanelMessageId
-          ? '220px 1fr 400px'
-          : '220px 1fr',
+          ? '56px 220px 1fr 400px'
+          : '56px 220px 1fr',
         gridTemplateRows: '1fr',
       }}
     >
+      {/* Left nav rail */}
+      <NavRail />
+
       {/* Sidebar */}
-      <aside className="flex flex-col overflow-hidden bg-sidebar-bg">
+      <aside className="flex flex-col overflow-hidden" style={{ background: '#3F0E40' }}>
         <Sidebar />
       </aside>
 
       {/* Main content */}
-      <main className="flex flex-col overflow-hidden border-l border-channel-border">
+      <main className="flex flex-col overflow-hidden bg-white" style={{ borderLeft: '1px solid #E8E8E8' }}>
         {activeChannelId ? (
           <>
             <ChannelHeader />
@@ -41,19 +45,15 @@ export default function Layout() {
             >
               #
             </div>
-            <p className="text-[18px] font-bold text-[#1D1C1D]">
-              チャンネルを選択してください
-            </p>
-            <p className="text-[14px] text-[#616061]">
-              左のサイドバーからチャンネルを選んで会話を始めましょう
-            </p>
+            <p className="text-[18px] font-bold text-[#1D1C1D]">チャンネルを選択してください</p>
+            <p className="text-[14px] text-[#616061]">左のサイドバーからチャンネルを選んで会話を始めましょう</p>
           </div>
         )}
       </main>
 
       {/* Thread Panel */}
       {threadPanelMessageId && (
-        <aside className="flex flex-col overflow-hidden border-l border-channel-border">
+        <aside className="flex flex-col overflow-hidden" style={{ borderLeft: '1px solid #E8E8E8' }}>
           <ThreadPanel />
         </aside>
       )}
