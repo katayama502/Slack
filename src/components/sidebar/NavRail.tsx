@@ -26,9 +26,9 @@ export default function NavRail() {
         <div
           className="w-9 h-9 flex items-center justify-center text-white font-bold text-[15px] cursor-pointer hover:opacity-80 transition-opacity"
           style={{ borderRadius: '10px', background: '#4A154B', border: '1px solid rgba(255,255,255,0.3)' }}
-          title="ワークスペース"
+          title="Creatte"
         >
-          S
+          C
         </div>
       </div>
 
