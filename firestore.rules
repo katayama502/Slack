@@ -1,0 +1,95 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─────────────────────────────────────────────
+    // Helper functions
+    // ─────────────────────────────────────────────
+
+    // 認証済みユーザーかどうか
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // リクエストしているユーザーが指定した uid と一致するか
+    function isOwner(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+
+    // チャンネルの members 配列にリクエストユーザーが含まれるか
+    function isChannelMember(channelId) {
+      return isAuthenticated() &&
+        request.auth.uid in get(/databases/$(database)/documents/channels/$(channelId)).data.members;
+    }
+
+    // ─────────────────────────────────────────────
+    // channels/{channelId}
+    // ─────────────────────────────────────────────
+    match /channels/{channelId} {
+
+      // 読み取り: チャンネルメンバーのみ
+      allow read: if isChannelMember(channelId);
+
+      // 作成: 認証済みユーザーなら誰でも作成可能（自分を members に含める想定）
+      allow create: if isAuthenticated()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.auth.uid in request.resource.data.members;
+
+      // 更新: チャンネルメンバーのみ（参加・退出を含む）、createdBy/createdAt の書き換えは禁止
+      allow update: if isChannelMember(channelId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'description', 'members']);
+
+      // 削除: 作成者のみ
+      allow delete: if isAuthenticated()
+        && resource.data.createdBy == request.auth.uid;
+
+      // ─────────────────────────────────────────
+      // channels/{channelId}/messages/{messageId}
+      // ─────────────────────────────────────────
+      match /messages/{messageId} {
+
+        // 読み書き: チャンネルメンバーのみ
+        allow read, create: if isChannelMember(channelId);
+
+        // 更新・削除: 投稿者本人のみ
+        allow update, delete: if isAuthenticated()
+          && resource.data.uid == request.auth.uid;
+
+        // ─────────────────────────────────────────
+        // channels/{channelId}/messages/{messageId}/threads/{threadId}
+        // ─────────────────────────────────────────
+        match /threads/{threadId} {
+
+          // 読み書き: チャンネルメンバーのみ
+          allow read, create: if isChannelMember(channelId);
+
+          // 更新・削除: 投稿者本人のみ
+          allow update, delete: if isAuthenticated()
+            && resource.data.uid == request.auth.uid;
+        }
+      }
+    }
+
+    // ─────────────────────────────────────────────
+    // users/{userId}
+    // ─────────────────────────────────────────────
+    match /users/{userId} {
+
+      // 読み取り: 認証済みユーザーなら誰でも可
+      allow read: if isAuthenticated();
+
+      // 書き込み: 本人のみ
+      allow write: if isOwner(userId);
+    }
+
+    // ─────────────────────────────────────────────
+    // notifications/{userId}/items/{notifId}
+    // ─────────────────────────────────────────────
+    match /notifications/{userId}/items/{notifId} {
+
+      // 読み書き: 本人のみ
+      allow read, write: if isOwner(userId);
+    }
+  }
+}
