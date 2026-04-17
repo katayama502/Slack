@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAppStore } from './store/useAppStore';
-import { subscribeToAuthState } from './services';
+import { subscribeToAuthState, handleGoogleRedirectResult } from './services';
 import LoginPage from './pages/LoginPage';
 import WorkspacePage from './pages/WorkspacePage';
 
@@ -39,6 +39,8 @@ export default function App() {
 
   useEffect(() => {
     setAuthLoading(true);
+    // リダイレクト後の認証結果を処理（本番環境のGoogle Sign-in用）
+    handleGoogleRedirectResult().catch(() => {});
     const unsubscribe = subscribeToAuthState((u) => {
       setUser(u);
     });
