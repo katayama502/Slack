@@ -123,9 +123,9 @@ export default function MessageItem({ message, isCompact, onThreadClick }: Props
             </div>
           </div>
         ) : (
-          <p className="text-[14px] text-[#1D1C1D] leading-relaxed break-words whitespace-pre-wrap">
+          <div className="text-[14px] text-[#1D1C1D] leading-relaxed">
             {renderMarkdown(message.text)}
-          </p>
+          </div>
         )}
 
         {/* Thread reply count */}

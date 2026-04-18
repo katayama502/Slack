@@ -101,9 +101,9 @@ export default function ThreadPanel() {
                     {formatMessageTime(parentMessage.createdAt)}
                   </span>
                 </div>
-                <p className="text-[14px] leading-relaxed whitespace-pre-wrap break-words" style={{ color: '#1D1C1D' }}>
+                <div className="text-[14px] leading-relaxed" style={{ color: '#1D1C1D' }}>
                   {renderMarkdown(parentMessage.text)}
-                </p>
+                </div>
               </div>
             </div>
           </div>
@@ -152,9 +152,9 @@ export default function ThreadPanel() {
                     {formatMessageTime(thread.createdAt)}
                   </span>
                 </div>
-                <p className="text-[14px] leading-relaxed whitespace-pre-wrap break-words" style={{ color: '#1D1C1D' }}>
+                <div className="text-[14px] leading-relaxed" style={{ color: '#1D1C1D' }}>
                   {renderMarkdown(thread.text)}
-                </p>
+                </div>
               </div>
             </div>
           ))}

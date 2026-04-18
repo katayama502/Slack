@@ -13,7 +13,7 @@ function parseMentions(text: string): string[] {
 
 const PLACEHOLDER = 'テキスト'; // 4 chars
 
-// テキストエリアの選択範囲をマーカーで囲む
+// テキストエリアの選択範囲をインラインマーカーで囲む
 function wrapSelection(
   textarea: HTMLTextAreaElement,
   marker: string,
@@ -30,14 +30,56 @@ function wrapSelection(
   setTimeout(() => {
     textarea.focus();
     if (selected) {
-      // Move cursor to after the wrapped text
       const newPos = start + wrapped.length;
       textarea.setSelectionRange(newPos, newPos);
     } else {
-      // Select the placeholder text so user can immediately type over it
       const selStart = start + marker.length;
       textarea.setSelectionRange(selStart, selStart + PLACEHOLDER.length);
     }
+  }, 0);
+}
+
+// コードブロック挿入（選択範囲 or プレースホルダーをフェンスで囲む）
+function insertCodeBlock(
+  textarea: HTMLTextAreaElement,
+  setText: (v: string) => void
+) {
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const value = textarea.value;
+  const selected = value.slice(start, end);
+  const inner = selected || 'コードをここに入力';
+  const prefix = start > 0 && value[start - 1] !== '\n' ? '\n' : '';
+  const suffix = end < value.length && value[end] !== '\n' ? '\n' : '';
+  const block = `${prefix}\`\`\`\n${inner}\n\`\`\`${suffix}`;
+  const newValue = value.slice(0, start) + block + value.slice(end);
+  setText(newValue);
+  setTimeout(() => {
+    textarea.focus();
+    const codeStart = start + prefix.length + 4; // after "```\n"
+    textarea.setSelectionRange(codeStart, codeStart + inner.length);
+  }, 0);
+}
+
+// ブロッククォート挿入
+function insertBlockquote(
+  textarea: HTMLTextAreaElement,
+  setText: (v: string) => void
+) {
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const value = textarea.value;
+  const selected = value.slice(start, end);
+  const inner = selected || PLACEHOLDER;
+  const prefix = start > 0 && value[start - 1] !== '\n' ? '\n' : '';
+  const quoted = inner.split('\n').map((l) => `> ${l}`).join('\n');
+  const block = `${prefix}${quoted}`;
+  const newValue = value.slice(0, start) + block + value.slice(end);
+  setText(newValue);
+  setTimeout(() => {
+    textarea.focus();
+    const newPos = start + block.length;
+    textarea.setSelectionRange(newPos, newPos);
   }, 0);
 }
 
@@ -244,10 +286,21 @@ export default function MessageInput() {
               <button title="打ち消し線 (~テキスト~)" onMouseDown={(e) => { e.preventDefault(); if (textareaRef.current) wrapSelection(textareaRef.current, '~', setText); }}
                 className="w-8 h-8 flex items-center justify-center rounded text-[#616061] hover:bg-[#F8F8F8] hover:text-[#1D1C1D] transition-colors"
                 style={{ textDecoration: 'line-through', fontSize: '14px' }}>S</button>
-              {/* Code */}
-              <button title="コード (`テキスト`)" onMouseDown={(e) => { e.preventDefault(); if (textareaRef.current) wrapSelection(textareaRef.current, '`', setText); }}
+              {/* Inline code */}
+              <button title="インラインコード (`テキスト`)" onMouseDown={(e) => { e.preventDefault(); if (textareaRef.current) wrapSelection(textareaRef.current, '`', setText); }}
                 className="w-8 h-8 flex items-center justify-center rounded text-[#616061] hover:bg-[#F8F8F8] hover:text-[#1D1C1D] transition-colors"
-                style={{ fontFamily: 'monospace', fontSize: '13px', fontWeight: 600 }}>&lt;/&gt;</button>
+                style={{ fontFamily: 'monospace', fontSize: '13px', fontWeight: 600 }}>`</button>
+              {/* Code block */}
+              <button title="コードブロック (```)" onMouseDown={(e) => { e.preventDefault(); if (textareaRef.current) insertCodeBlock(textareaRef.current, setText); }}
+                className="w-8 h-8 flex items-center justify-center rounded text-[#616061] hover:bg-[#F8F8F8] hover:text-[#1D1C1D] transition-colors"
+                style={{ fontFamily: 'monospace', fontSize: '11px', fontWeight: 700, letterSpacing: '-1px' }}>```</button>
+              {/* Blockquote */}
+              <button title="引用 (> テキスト)" onMouseDown={(e) => { e.preventDefault(); if (textareaRef.current) insertBlockquote(textareaRef.current, setText); }}
+                className="w-8 h-8 flex items-center justify-center rounded text-[#616061] hover:bg-[#F8F8F8] hover:text-[#1D1C1D] transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h11M3 14h7m-7-8h16" />
+                </svg>
+              </button>
 
               <div className="w-px h-4 bg-[#DDDDDD] mx-1" />
 
