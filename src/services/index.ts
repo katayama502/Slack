@@ -19,6 +19,8 @@ import {
 } from 'firebase/firestore';
 import {
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   GoogleAuthProvider,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -61,11 +63,34 @@ export function subscribeToAuthState(callback: (user: User | null) => void) {
 
 export async function signInWithGoogle(): Promise<void> {
   const provider = new GoogleAuthProvider();
-  await signInWithPopup(auth, provider);
+  try {
+    await signInWithPopup(auth, provider);
+  } catch (err: any) {
+    // ポップアップがブロックされた場合・サードパーティCookie制限環境（Safari等）では
+    // リダイレクト方式にフォールバックする
+    const code = err?.code as string | undefined;
+    if (
+      code === 'auth/popup-blocked' ||
+      code === 'auth/popup-closed-by-user' ||
+      code === 'auth/internal-error' ||
+      code === 'auth/cancelled-popup-request'
+    ) {
+      await signInWithRedirect(auth, provider);
+      return;
+    }
+    throw err;
+  }
 }
 
 export async function handleGoogleRedirectResult(): Promise<void> {
-  // signInWithPopup に統一したため何もしない
+  try {
+    const result = await getRedirectResult(auth);
+    if (!result) return;
+    // リダイレクト後のユーザー情報はonAuthStateChangedが自動で検知するため
+    // ここでは追加処理不要
+  } catch (err) {
+    console.error('[handleGoogleRedirectResult]', err);
+  }
 }
 
 export async function signInWithEmail(

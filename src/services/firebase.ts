@@ -26,9 +26,8 @@ const firebaseConfig = {
 // ─────────────────────────────────────────────────────────────────────────────
 // 二重初期化防止: すでに初期化済みなら既存のインスタンスを使用する
 // ─────────────────────────────────────────────────────────────────────────────
-const app: FirebaseApp = getApps().length === 0
-  ? initializeApp(firebaseConfig)
-  : getApp();
+const isNew = getApps().length === 0;
+const app: FirebaseApp = isNew ? initializeApp(firebaseConfig) : getApp();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Firebase サービスの初期化
@@ -38,9 +37,9 @@ export const auth: Auth = getAuth(app);
 // ─────────────────────────────────────────────────────────────────────────────
 // Firestore オフラインキャッシュ (IndexedDB) の有効化
 // Firebase v10 では initializeFirestore + persistentLocalCache を使用する
-// SSR / テスト環境ではスキップする
+// 新規初期化時のみ initializeFirestore を呼ぶ（二重呼び出し防止）
 // ─────────────────────────────────────────────────────────────────────────────
-export const db: Firestore = typeof window !== 'undefined' && getApps().length <= 1
+export const db: Firestore = isNew && typeof window !== 'undefined'
   ? initializeFirestore(app, {
       localCache: persistentLocalCache({
         tabManager: persistentSingleTabManager({ forceOwnership: false }),
