@@ -54,6 +54,18 @@ export interface Thread {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Pin  (channels/{channelId}/pins/{pinId})
+// ─────────────────────────────────────────────────────────────────────────────
+export interface Pin {
+  id: string;
+  name: string;
+  url: string;
+  createdBy: string;   // uid
+  createdAt: Timestamp;
+  order: number;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Notification  (notifications/{userId}/items/{notifId})
 // ─────────────────────────────────────────────────────────────────────────────
 export interface Notification {

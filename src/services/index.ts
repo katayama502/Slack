@@ -27,7 +27,7 @@ import {
   updateProfile,
 } from 'firebase/auth';
 import { db, auth } from './firebase';
-import type { Channel, Message, Thread, Notification, User } from '../types';
+import type { Channel, Message, Thread, Notification, User, Pin } from '../types';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Auth
@@ -371,4 +371,53 @@ export async function toggleReaction(
   await updateDoc(ref, {
     [`reactions.${emoji}`]: hasReacted ? arrayRemove(uid) : arrayUnion(uid),
   });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pins  (channels/{channelId}/pins)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function subscribeToPins(
+  channelId: string,
+  callback: (pins: Pin[]) => void
+): () => void {
+  const q = query(
+    collection(db, 'channels', channelId, 'pins'),
+    orderBy('order', 'asc')
+  );
+  return onSnapshot(q, (snap) => {
+    const pins: Pin[] = snap.docs.map((d) => ({
+      id: d.id,
+      ...(d.data() as Omit<Pin, 'id'>),
+    }));
+    callback(pins);
+  });
+}
+
+export async function addPin(
+  channelId: string,
+  name: string,
+  url: string,
+  uid: string,
+  currentCount: number
+): Promise<void> {
+  await addDoc(collection(db, 'channels', channelId, 'pins'), {
+    name,
+    url,
+    createdBy: uid,
+    createdAt: serverTimestamp(),
+    order: currentCount,
+  });
+}
+
+export async function deletePin(channelId: string, pinId: string): Promise<void> {
+  await deleteDoc(doc(db, 'channels', channelId, 'pins', pinId));
+}
+
+export async function updatePin(
+  channelId: string,
+  pinId: string,
+  data: { name?: string; url?: string }
+): Promise<void> {
+  await updateDoc(doc(db, 'channels', channelId, 'pins', pinId), data);
 }

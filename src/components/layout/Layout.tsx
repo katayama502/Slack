@@ -3,6 +3,7 @@ import { useAppStore } from '../../store/useAppStore';
 import NavRail from '../sidebar/NavRail';
 import Sidebar from '../sidebar/Sidebar';
 import ChannelHeader from '../channel/ChannelHeader';
+import PinBar from '../channel/PinBar';
 import MessageList from '../message/MessageList';
 import MessageInput from '../message/MessageInput';
 import ThreadPanel from '../thread/ThreadPanel';
@@ -146,6 +147,7 @@ export default function Layout() {
         {activeChannelId ? (
           <>
             <ChannelHeader onMenuClick={() => setMobileSidebarOpen(true)} />
+            <PinBar />
             <MessageList />
             <MessageInput />
           </>
