@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Timestamp } from 'firebase/firestore';
 import { useAppStore } from '../../store/useAppStore';
 import { subscribeToUsers, signOut, getOrCreateDMChannel, getDMChannelName, joinChannelIfNeeded } from '../../services';
 import AddChannelModal from './AddChannelModal';
@@ -9,6 +10,7 @@ export default function Sidebar() {
   const channels = useAppStore((s) => s.channels);
   const activeChannelId = useAppStore((s) => s.activeChannelId);
   const setActiveChannel = useAppStore((s) => s.setActiveChannel);
+  const addChannel = useAppStore((s) => s.addChannel);
   const { user } = useAppStore((s) => s.auth);
   const [showAddModal, setShowAddModal] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
@@ -34,6 +36,18 @@ export default function Sidebar() {
     setDmLoading(otherUser.uid);
     try {
       const channelId = await getOrCreateDMChannel(user.uid, otherUser.uid);
+      // Race condition guard: pre-populate store if onSnapshot hasn't fired yet
+      const existing = useAppStore.getState().channels.find((c) => c.id === channelId);
+      if (!existing) {
+        addChannel({
+          id: channelId,
+          name: getDMChannelName(user.uid, otherUser.uid),
+          description: '',
+          createdBy: user.uid,
+          createdAt: Timestamp.now(),
+          members: [user.uid, otherUser.uid],
+        });
+      }
       setActiveChannel(channelId);
     } catch (err) {
       console.error('DM open error:', err);

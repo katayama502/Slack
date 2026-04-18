@@ -3,6 +3,7 @@ import { useAppStore } from '../../store/useAppStore';
 export default function NavRail() {
   const { user } = useAppStore((s) => s.auth);
   const setActiveChannel = useAppStore((s) => s.setActiveChannel);
+  const setSidebarOpen = useAppStore((s) => s.setSidebarOpen);
   const notificationsPanelOpen = useAppStore((s) => s.notificationsPanelOpen);
   const setNotificationsPanelOpen = useAppStore((s) => s.setNotificationsPanelOpen);
   const unreadCount = useAppStore((s) => s.unreadCount);
@@ -47,6 +48,7 @@ export default function NavRail() {
       {/* DM */}
       <button
         title="DM"
+        onClick={() => setSidebarOpen(true)}
         className="w-10 h-10 flex flex-col items-center justify-center gap-0.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-colors"
       >
         <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">

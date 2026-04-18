@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, KeyboardEvent, useCallback } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import { sendMessage, subscribeToUsers } from '../../services';
+import { renderMarkdown } from '../../utils/markdown';
 import type { User } from '../../types';
 
 function parseMentions(text: string): string[] {
@@ -99,6 +100,7 @@ export default function MessageInput() {
   const [atPos, setAtPos] = useState<number | null>(null);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [toolbarExpanded, setToolbarExpanded] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const channel = channels.find((c) => c.id === activeChannelId);
@@ -254,6 +256,22 @@ export default function MessageInput() {
           }}
         />
 
+        {/* プレビューパネル */}
+        {showPreview && hasText && (
+          <div
+            className="mx-3 mb-1 px-3 py-2 text-[14px] leading-relaxed"
+            style={{
+              borderTop: '1px solid #EEEEEE',
+              color: '#1D1C1D',
+              minHeight: '36px',
+              background: '#FAFAFA',
+              borderRadius: '4px',
+            }}
+          >
+            {renderMarkdown(text)}
+          </div>
+        )}
+
         {/* ツールバー */}
         <div className="flex items-center justify-between px-2 pb-2 pt-1">
           <div className="flex items-center gap-0.5">
@@ -299,6 +317,22 @@ export default function MessageInput() {
                 className="w-8 h-8 flex items-center justify-center rounded text-[#616061] hover:bg-[#F8F8F8] hover:text-[#1D1C1D] transition-colors">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h11M3 14h7m-7-8h16" />
+                </svg>
+              </button>
+
+              {/* Preview toggle */}
+              <button
+                title="プレビュー"
+                onMouseDown={(e) => { e.preventDefault(); setShowPreview((p) => !p); }}
+                className="w-8 h-8 flex items-center justify-center rounded transition-colors"
+                style={{
+                  color: showPreview ? '#1D1C1D' : '#616061',
+                  background: showPreview ? '#F8F8F8' : 'transparent',
+                }}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
               </button>
 
