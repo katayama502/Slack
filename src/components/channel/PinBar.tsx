@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import ReactDOM from 'react-dom';
 import { useAppStore } from '../../store/useAppStore';
 import { subscribeToPins, addPin, deletePin, updatePin } from '../../services';
 import type { Pin } from '../../types';
@@ -34,7 +35,6 @@ function AddPinForm({
     const trimName = name.trim();
     const trimUrl = url.trim();
     if (!trimName || !trimUrl) return;
-    // Normalize URL
     const normalized = /^https?:\/\//i.test(trimUrl) ? trimUrl : `https://${trimUrl}`;
     onSave(trimName, normalized);
   };
@@ -168,6 +168,74 @@ function EditPinForm({
   );
 }
 
+// ─── Delete confirm portal ────────────────────────────────────────────────────
+// Rendered into document.body to escape any overflow:hidden ancestors
+function DeleteConfirmPortal({
+  pinName,
+  anchorRect,
+  onConfirm,
+  onCancel,
+}: {
+  pinName: string;
+  anchorRect: DOMRect;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const top = anchorRect.bottom + 4;
+  const left = anchorRect.left;
+
+  return ReactDOM.createPortal(
+    <>
+      {/* Backdrop — click outside to cancel */}
+      <div
+        className="fixed inset-0"
+        style={{ zIndex: 9998 }}
+        onClick={onCancel}
+      />
+      {/* Confirm popover */}
+      <div
+        className="fixed px-3 py-2.5 flex flex-col gap-2"
+        style={{
+          top,
+          left,
+          zIndex: 9999,
+          background: '#FFFFFF',
+          border: '1px solid #DDDDDD',
+          borderRadius: '8px',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
+          minWidth: '180px',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className="text-[13px] text-[#1D1C1D] font-medium leading-snug">
+          「{pinName}」を削除しますか？
+        </p>
+        <div className="flex gap-2">
+          <button
+            onClick={onConfirm}
+            className="flex-1 py-1.5 rounded text-[13px] font-semibold text-white transition-colors"
+            style={{ background: '#E01E5A' }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = '#C0195A'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = '#E01E5A'; }}
+          >
+            削除
+          </button>
+          <button
+            onClick={onCancel}
+            className="flex-1 py-1.5 rounded text-[13px] text-[#1D1C1D] transition-colors"
+            style={{ border: '1px solid #DDDDDD' }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = '#F8F8F8'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+          >
+            キャンセル
+          </button>
+        </div>
+      </div>
+    </>,
+    document.body
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function PinBar() {
   const activeChannelId = useAppStore((s) => s.activeChannelId);
@@ -178,6 +246,7 @@ export default function PinBar() {
   const [editingPinId, setEditingPinId] = useState<string | null>(null);
   const [hoveredPinId, setHoveredPinId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deleteAnchorRect, setDeleteAnchorRect] = useState<DOMRect | null>(null);
   const [addError, setAddError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -186,6 +255,8 @@ export default function PinBar() {
     setPins([]);
     setShowAddForm(false);
     setEditingPinId(null);
+    setDeleteConfirmId(null);
+    setDeleteAnchorRect(null);
     setAddError(null);
     const unsub = subscribeToPins(
       activeChannelId,
@@ -211,6 +282,7 @@ export default function PinBar() {
   const handleDeletePin = async (pinId: string) => {
     if (!activeChannelId) return;
     setDeleteConfirmId(null);
+    setDeleteAnchorRect(null);
     try {
       await deletePin(activeChannelId, pinId);
     } catch (err) {
@@ -228,29 +300,26 @@ export default function PinBar() {
     }
   };
 
-  // ↑ グローバル click リスナー廃止（React の stopPropagation をすり抜ける問題あり）
-  //   代わりにバックドロップ div で "外側クリックで閉じる" を実装
+  const openDeleteConfirm = (e: React.MouseEvent, pinId: string) => {
+    e.stopPropagation();
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setDeleteConfirmId(pinId);
+    setDeleteAnchorRect(rect);
+  };
 
   if (!activeChannelId) return null;
 
+  const confirmPin = deleteConfirmId ? pins.find((p) => p.id === deleteConfirmId) : null;
+
   return (
     <div
-      className="flex-shrink-0 flex items-center overflow-hidden"
+      className="flex-shrink-0 flex items-center"
       style={{
         borderBottom: '1px solid #E8E8E8',
         background: '#FFFFFF',
         minHeight: '38px',
       }}
     >
-      {/* 確認ダイアログが開いている間のバックドロップ — クリックで閉じる */}
-      {deleteConfirmId && (
-        <div
-          className="fixed inset-0"
-          style={{ zIndex: 25 }}
-          onClick={() => setDeleteConfirmId(null)}
-        />
-      )}
-
       {/* Scrollable pin list */}
       <div
         ref={scrollRef}
@@ -294,9 +363,7 @@ export default function PinBar() {
               className="relative flex-shrink-0"
               onMouseEnter={() => setHoveredPinId(pin.id)}
               onMouseLeave={() => setHoveredPinId(null)}
-              // ↑ hover のみクリア。deleteConfirmId はクリアしない
             >
-              {/* Pin button + inline action buttons */}
               <div
                 className="flex items-center rounded-md transition-colors"
                 style={{
@@ -314,7 +381,7 @@ export default function PinBar() {
                   <span className="max-w-[120px] truncate">{pin.name}</span>
                 </button>
 
-                {/* Edit / Delete — inline, only visible on hover (owner only) */}
+                {/* Edit / Delete — visible on hover (owner only) */}
                 {isOwner && isHovered && !isDeleteConfirm && (
                   <div className="flex items-center gap-0.5 pr-1.5">
                     <button
@@ -332,11 +399,7 @@ export default function PinBar() {
                     </button>
                     <button
                       onMouseDown={(e) => e.preventDefault()}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        e.nativeEvent.stopImmediatePropagation();
-                        setDeleteConfirmId(pin.id);
-                      }}
+                      onClick={(e) => openDeleteConfirm(e, pin.id)}
                       title="削除"
                       className="w-5 h-5 flex items-center justify-center rounded transition-colors"
                       style={{ color: '#E01E5A' }}
@@ -350,45 +413,6 @@ export default function PinBar() {
                   </div>
                 )}
               </div>
-
-              {/* Delete confirm popover — z-[26] はバックドロップ(z-25)より上 */}
-              {isDeleteConfirm && (
-                <div
-                  className="absolute top-full left-0 mt-1 px-3 py-2.5 flex flex-col gap-2"
-                  style={{
-                    zIndex: 26,
-                    background: '#FFFFFF',
-                    border: '1px solid #DDDDDD',
-                    borderRadius: '8px',
-                    boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
-                    minWidth: '180px',
-                  }}
-                >
-                  <p className="text-[13px] text-[#1D1C1D] font-medium leading-snug">
-                    「{pin.name}」を削除しますか？
-                  </p>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleDeletePin(pin.id)}
-                      className="flex-1 py-1.5 rounded text-[13px] font-semibold text-white transition-colors"
-                      style={{ background: '#E01E5A' }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = '#C0195A'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = '#E01E5A'; }}
-                    >
-                      削除
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(null); }}
-                      className="flex-1 py-1.5 rounded text-[13px] text-[#1D1C1D] transition-colors"
-                      style={{ border: '1px solid #DDDDDD' }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = '#F8F8F8'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                    >
-                      キャンセル
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
           );
         })}
@@ -423,6 +447,16 @@ export default function PinBar() {
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
           </svg>
         </button>
+      )}
+
+      {/* Delete confirm — rendered via portal to escape overflow:hidden ancestors */}
+      {confirmPin && deleteAnchorRect && (
+        <DeleteConfirmPortal
+          pinName={confirmPin.name}
+          anchorRect={deleteAnchorRect}
+          onConfirm={() => handleDeletePin(confirmPin.id)}
+          onCancel={() => { setDeleteConfirmId(null); setDeleteAnchorRect(null); }}
+        />
       )}
     </div>
   );
