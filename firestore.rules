@@ -68,8 +68,20 @@ service cloud.firestore {
       match /messages/{messageId} {
 
         allow read, create: if isChannelMember(channelId);
-        allow update, delete: if isAuthenticated()
+
+        // 削除: 自分のメッセージのみ
+        allow delete: if isAuthenticated()
           && resource.data.uid == request.auth.uid;
+
+        // 更新: 自分のメッセージは何でも可 / 他人のメッセージは reactions フィールドのみ可
+        allow update: if isAuthenticated() && (
+          resource.data.uid == request.auth.uid
+          ||
+          (
+            isChannelMember(channelId) &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])
+          )
+        );
 
         match /threads/{threadId} {
           allow read, create: if isChannelMember(channelId);
