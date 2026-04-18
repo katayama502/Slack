@@ -379,19 +379,27 @@ export async function toggleReaction(
 
 export function subscribeToPins(
   channelId: string,
-  callback: (pins: Pin[]) => void
+  callback: (pins: Pin[]) => void,
+  onError?: (err: Error) => void
 ): () => void {
   const q = query(
     collection(db, 'channels', channelId, 'pins'),
     orderBy('order', 'asc')
   );
-  return onSnapshot(q, (snap) => {
-    const pins: Pin[] = snap.docs.map((d) => ({
-      id: d.id,
-      ...(d.data() as Omit<Pin, 'id'>),
-    }));
-    callback(pins);
-  });
+  return onSnapshot(
+    q,
+    (snap) => {
+      const pins: Pin[] = snap.docs.map((d) => ({
+        id: d.id,
+        ...(d.data() as Omit<Pin, 'id'>),
+      }));
+      callback(pins);
+    },
+    (err) => {
+      console.error('subscribeToPins error:', err);
+      onError?.(err);
+    }
+  );
 }
 
 export async function addPin(

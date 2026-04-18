@@ -178,6 +178,7 @@ export default function PinBar() {
   const [editingPinId, setEditingPinId] = useState<string | null>(null);
   const [hoveredPinId, setHoveredPinId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [addError, setAddError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -185,17 +186,25 @@ export default function PinBar() {
     setPins([]);
     setShowAddForm(false);
     setEditingPinId(null);
-    const unsub = subscribeToPins(activeChannelId, setPins);
+    setAddError(null);
+    const unsub = subscribeToPins(
+      activeChannelId,
+      setPins,
+      (err) => console.error('Pin load error:', err)
+    );
     return () => unsub();
   }, [activeChannelId]);
 
   const handleAddPin = async (name: string, url: string) => {
     if (!activeChannelId || !user) return;
     setShowAddForm(false);
+    setAddError(null);
     try {
       await addPin(activeChannelId, name, url, user.uid, pins.length);
     } catch (err) {
       console.error('Add pin error:', err);
+      setAddError('ピンの追加に失敗しました');
+      setTimeout(() => setAddError(null), 3000);
     }
   };
 
@@ -367,6 +376,13 @@ export default function PinBar() {
           />
         )}
       </div>
+
+      {/* Error toast */}
+      {addError && (
+        <span className="flex-shrink-0 text-[12px] px-2" style={{ color: '#E01E5A' }}>
+          {addError}
+        </span>
+      )}
 
       {/* + button (always visible on right) */}
       {!showAddForm && (
