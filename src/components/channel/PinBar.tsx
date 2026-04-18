@@ -282,82 +282,99 @@ export default function PinBar() {
             );
           }
 
+          const isHovered = hoveredPinId === pin.id;
+
           return (
             <div
               key={pin.id}
               className="relative flex-shrink-0"
               onMouseEnter={() => setHoveredPinId(pin.id)}
-              onMouseLeave={() => { setHoveredPinId(null); setDeleteConfirmId(null); }}
+              onMouseLeave={() => setHoveredPinId(null)}
+              // ↑ hover のみクリア。deleteConfirmId はクリアしない
             >
-              <button
-                onClick={() => window.open(pin.url, '_blank', 'noopener,noreferrer')}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[13px] flex-shrink-0 transition-colors group"
-                style={{ color: '#616061' }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = '#F8F8F8'; e.currentTarget.style.color = '#1D1C1D'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#616061'; }}
-                title={pin.url}
+              {/* Pin button + inline action buttons */}
+              <div
+                className="flex items-center rounded-md transition-colors"
+                style={{
+                  background: isHovered || isDeleteConfirm ? '#F0F0F0' : 'transparent',
+                }}
               >
-                <FolderIcon className="w-3.5 h-3.5 flex-shrink-0" />
-                <span className="max-w-[120px] truncate">{pin.name}</span>
-              </button>
-
-              {/* Owner actions: shown on hover */}
-              {isOwner && hoveredPinId === pin.id && !isDeleteConfirm && (
-                <div
-                  className="absolute right-0 top-0 flex items-center gap-0.5"
-                  style={{ transform: 'translateY(-40%)', zIndex: 20 }}
+                {/* Main link */}
+                <button
+                  onClick={() => window.open(pin.url, '_blank', 'noopener,noreferrer')}
+                  title={pin.url}
+                  className="flex items-center gap-1.5 pl-3 pr-2 py-1.5 text-[13px] flex-shrink-0"
+                  style={{ color: isHovered || isDeleteConfirm ? '#1D1C1D' : '#616061' }}
                 >
-                  {/* Edit */}
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setEditingPinId(pin.id); }}
-                    title="編集"
-                    className="w-5 h-5 flex items-center justify-center rounded text-white text-[10px]"
-                    style={{ background: '#616061', fontSize: '10px' }}
-                  >
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z" />
-                    </svg>
-                  </button>
-                  {/* Delete */}
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(pin.id); }}
-                    title="削除"
-                    className="w-5 h-5 flex items-center justify-center rounded text-white"
-                    style={{ background: '#E01E5A' }}
-                  >
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-              )}
+                  <FolderIcon className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span className="max-w-[120px] truncate">{pin.name}</span>
+                </button>
 
-              {/* Delete confirm popover */}
+                {/* Edit / Delete — inline, only visible on hover (owner only) */}
+                {isOwner && isHovered && !isDeleteConfirm && (
+                  <div className="flex items-center gap-0.5 pr-1.5">
+                    <button
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={(e) => { e.stopPropagation(); setEditingPinId(pin.id); }}
+                      title="編集"
+                      className="w-5 h-5 flex items-center justify-center rounded transition-colors"
+                      style={{ color: '#616061' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = '#DDDDDD'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z" />
+                      </svg>
+                    </button>
+                    <button
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(pin.id); }}
+                      title="削除"
+                      className="w-5 h-5 flex items-center justify-center rounded transition-colors"
+                      style={{ color: '#E01E5A' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = '#FEE2E2'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Delete confirm popover — stays open even when mouse leaves pin */}
               {isDeleteConfirm && (
                 <div
-                  className="absolute top-full left-0 mt-1 z-30 px-3 py-2 flex flex-col gap-2"
+                  className="absolute top-full left-0 mt-1 z-30 px-3 py-2.5 flex flex-col gap-2"
                   style={{
                     background: '#FFFFFF',
                     border: '1px solid #DDDDDD',
-                    borderRadius: '6px',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                    minWidth: '160px',
+                    borderRadius: '8px',
+                    boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
+                    minWidth: '180px',
                   }}
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <p className="text-[13px] text-[#1D1C1D] font-medium">「{pin.name}」を削除しますか？</p>
+                  <p className="text-[13px] text-[#1D1C1D] font-medium leading-snug">
+                    「{pin.name}」を削除しますか？
+                  </p>
                   <div className="flex gap-2">
                     <button
                       onClick={() => handleDeletePin(pin.id)}
-                      className="flex-1 py-1 rounded text-[13px] font-medium text-white"
+                      className="flex-1 py-1.5 rounded text-[13px] font-semibold text-white transition-colors"
                       style={{ background: '#E01E5A' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = '#C0195A'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = '#E01E5A'; }}
                     >
                       削除
                     </button>
                     <button
-                      onClick={() => setDeleteConfirmId(null)}
-                      className="flex-1 py-1 rounded text-[13px] text-[#1D1C1D] hover:bg-[#F8F8F8]"
+                      onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(null); }}
+                      className="flex-1 py-1.5 rounded text-[13px] text-[#1D1C1D] transition-colors"
                       style={{ border: '1px solid #DDDDDD' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = '#F8F8F8'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                     >
                       キャンセル
                     </button>
