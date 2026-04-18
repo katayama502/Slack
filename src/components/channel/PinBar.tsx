@@ -228,13 +228,8 @@ export default function PinBar() {
     }
   };
 
-  // Dismiss delete confirm on outside click
-  useEffect(() => {
-    if (!deleteConfirmId) return;
-    const handler = () => setDeleteConfirmId(null);
-    window.addEventListener('click', handler);
-    return () => window.removeEventListener('click', handler);
-  }, [deleteConfirmId]);
+  // ↑ グローバル click リスナー廃止（React の stopPropagation をすり抜ける問題あり）
+  //   代わりにバックドロップ div で "外側クリックで閉じる" を実装
 
   if (!activeChannelId) return null;
 
@@ -247,6 +242,15 @@ export default function PinBar() {
         minHeight: '38px',
       }}
     >
+      {/* 確認ダイアログが開いている間のバックドロップ — クリックで閉じる */}
+      {deleteConfirmId && (
+        <div
+          className="fixed inset-0"
+          style={{ zIndex: 25 }}
+          onClick={() => setDeleteConfirmId(null)}
+        />
+      )}
+
       {/* Scrollable pin list */}
       <div
         ref={scrollRef}
@@ -328,7 +332,11 @@ export default function PinBar() {
                     </button>
                     <button
                       onMouseDown={(e) => e.preventDefault()}
-                      onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(pin.id); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.nativeEvent.stopImmediatePropagation();
+                        setDeleteConfirmId(pin.id);
+                      }}
                       title="削除"
                       className="w-5 h-5 flex items-center justify-center rounded transition-colors"
                       style={{ color: '#E01E5A' }}
@@ -343,18 +351,18 @@ export default function PinBar() {
                 )}
               </div>
 
-              {/* Delete confirm popover — stays open even when mouse leaves pin */}
+              {/* Delete confirm popover — z-[26] はバックドロップ(z-25)より上 */}
               {isDeleteConfirm && (
                 <div
-                  className="absolute top-full left-0 mt-1 z-30 px-3 py-2.5 flex flex-col gap-2"
+                  className="absolute top-full left-0 mt-1 px-3 py-2.5 flex flex-col gap-2"
                   style={{
+                    zIndex: 26,
                     background: '#FFFFFF',
                     border: '1px solid #DDDDDD',
                     borderRadius: '8px',
                     boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
                     minWidth: '180px',
                   }}
-                  onClick={(e) => e.stopPropagation()}
                 >
                   <p className="text-[13px] text-[#1D1C1D] font-medium leading-snug">
                     「{pin.name}」を削除しますか？
