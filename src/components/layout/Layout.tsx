@@ -8,6 +8,62 @@ import MessageList from '../message/MessageList';
 import MessageInput from '../message/MessageInput';
 import ThreadPanel from '../thread/ThreadPanel';
 import NotificationsPanel from '../notifications/NotificationsPanel';
+import { ToastContainer } from '../ui/Toast';
+
+// ─── Keyboard shortcut help modal ────────────────────────────────────────────
+const SHORTCUTS = [
+  { keys: ['Ctrl', 'B'], label: '太字' },
+  { keys: ['Ctrl', 'I'], label: '斜体' },
+  { keys: ['Ctrl', 'U'], label: '下線' },
+  { keys: ['Ctrl', 'K'], label: 'リンク挿入' },
+  { keys: ['Enter'], label: 'メッセージ送信' },
+  { keys: ['Shift', 'Enter'], label: '改行' },
+  { keys: ['↑'], label: '自分の最後のメッセージを編集' },
+  { keys: ['Esc'], label: '編集・検索をキャンセル' },
+  { keys: ['Ctrl', '/'], label: 'ショートカット一覧' },
+];
+
+function ShortcutModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={onClose}>
+      <div
+        className="w-full max-w-sm rounded-lg overflow-hidden"
+        style={{ background: '#FFFFFF', boxShadow: '0 8px 32px rgba(0,0,0,0.25)' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid #EEEEEE' }}>
+          <h3 className="text-[15px] font-bold text-[#1D1C1D]">キーボードショートカット</h3>
+          <button onClick={onClose} className="text-[#616061] hover:text-[#1D1C1D] transition-colors">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div className="px-5 py-3 flex flex-col gap-2">
+          {SHORTCUTS.map((s, i) => (
+            <div key={i} className="flex items-center justify-between">
+              <span className="text-[13px] text-[#1D1C1D]">{s.label}</span>
+              <div className="flex items-center gap-1">
+                {s.keys.map((k, j) => (
+                  <kbd
+                    key={j}
+                    className="px-1.5 py-0.5 text-[11px] font-mono text-[#1D1C1D]"
+                    style={{ background: '#F8F8F8', border: '1px solid #DDDDDD', borderRadius: '4px', boxShadow: '0 1px 0 #BBBBBB' }}
+                  >
+                    {k}
+                  </kbd>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="px-5 py-3" style={{ borderTop: '1px solid #EEEEEE' }}>
+          <p className="text-[12px] text-[#616061]">Macでは Ctrl の代わりに ⌘ Command を使用</p>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const SIDEBAR_MIN = 160;
 const SIDEBAR_MAX = 480;
@@ -26,8 +82,21 @@ export default function Layout() {
   const mobileSidebarOpen = useAppStore((s) => s.mobileSidebarOpen);
   const setMobileSidebarOpen = useAppStore((s) => s.setMobileSidebarOpen);
   const setActiveChannel = useAppStore((s) => s.setActiveChannel);
+  const [shortcutOpen, setShortcutOpen] = useState(false);
 
   const rightPanel = threadPanelMessageId || notificationsPanelOpen;
+
+  // Ctrl+/ でショートカット一覧を開く
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === '/') {
+        e.preventDefault();
+        setShortcutOpen((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT);
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_DEFAULT);
@@ -224,6 +293,12 @@ export default function Layout() {
           onHomeClick={() => { setActiveChannel(null); setMobileSidebarOpen(false); }}
         />
       )}
+
+      {/* Shortcut help modal */}
+      {shortcutOpen && <ShortcutModal onClose={() => setShortcutOpen(false)} />}
+
+      {/* Global toast notifications */}
+      <ToastContainer />
     </div>
   );
 }
@@ -294,7 +369,10 @@ function MobileBottomNav({
       </button>
 
       {/* プロフィール */}
-      <div className="flex flex-col items-center justify-center gap-0.5 flex-1 h-full">
+      <button
+        onClick={() => onMenuClick()}
+        className="flex flex-col items-center justify-center gap-0.5 flex-1 h-full text-white/60 hover:text-white transition-colors"
+      >
         <div className="relative">
           {user?.photoURL ? (
             <img
@@ -308,7 +386,7 @@ function MobileBottomNav({
               className="w-7 h-7 flex items-center justify-center text-white text-xs font-bold"
               style={{ borderRadius: '6px', background: '#1164A3' }}
             >
-              {(user?.displayName ?? '?')[0].toUpperCase()}
+              {(user?.displayName ?? '?')[0]?.toUpperCase() ?? '?'}
             </div>
           )}
           <span
@@ -316,8 +394,8 @@ function MobileBottomNav({
             style={{ borderColor: '#3B0D3C' }}
           />
         </div>
-        <span className="text-[10px] leading-none text-white/60">プロフィール</span>
-      </div>
+        <span className="text-[10px] leading-none">プロフィール</span>
+      </button>
     </nav>
   );
 }

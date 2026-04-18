@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAppStore } from './store/useAppStore';
-import { subscribeToAuthState, handleGoogleRedirectResult } from './services';
+import { subscribeToAuthState, handleGoogleRedirectResult, subscribeToUsers, setupOnlinePresence } from './services';
 import LoginPage from './pages/LoginPage';
 import WorkspacePage from './pages/WorkspacePage';
 
@@ -35,11 +35,18 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 export default function App() {
   const setUser = useAppStore((s) => s.setUser);
   const setAuthLoading = useAppStore((s) => s.setAuthLoading);
+  const setUsers = useAppStore((s) => s.setUsers);
   const { user, loading } = useAppStore((s) => s.auth);
 
+  // ── 全ユーザーを一か所でサブスクライブ（重複リスナーを防ぐ） ────────────────
+  useEffect(() => {
+    const unsub = subscribeToUsers((u) => setUsers(u));
+    return () => unsub();
+  }, [setUsers]);
+
+  // ── 認証状態の監視 ────────────────────────────────────────────────────────
   useEffect(() => {
     setAuthLoading(true);
-    // リダイレクト後の認証結果を処理（本番環境のGoogle Sign-in用）
     handleGoogleRedirectResult().catch((err) => {
       console.error('Redirect result error:', err);
       setAuthLoading(false);
@@ -49,6 +56,13 @@ export default function App() {
     });
     return () => unsubscribe();
   }, [setUser, setAuthLoading]);
+
+  // ── オンラインプレゼンスのハートビート ────────────────────────────────────
+  useEffect(() => {
+    if (!user?.uid) return;
+    const cleanup = setupOnlinePresence(user.uid);
+    return cleanup;
+  }, [user?.uid]);
 
   return (
     <BrowserRouter>

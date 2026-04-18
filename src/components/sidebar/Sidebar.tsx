@@ -1,10 +1,83 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Timestamp } from 'firebase/firestore';
 import { useAppStore } from '../../store/useAppStore';
-import { subscribeToUsers, signOut, getOrCreateDMChannel, getDMChannelName, joinChannelIfNeeded } from '../../services';
+import { signOut, getOrCreateDMChannel, getDMChannelName, joinChannelIfNeeded } from '../../services';
 import AddChannelModal from './AddChannelModal';
 import type { User } from '../../types';
 
+// ─── New DM modal ─────────────────────────────────────────────────────────────
+function NewDMModal({
+  users,
+  currentUid: currentUid,
+  onSelect,
+  onClose,
+}: {
+  users: User[];
+  currentUid: string;
+  onSelect: (user: User) => void;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState('');
+  const filtered = users
+    .filter((u) => u.uid !== currentUid)
+    .filter((u) => u.displayName.toLowerCase().includes(query.toLowerCase()));
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-24 px-4" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={onClose}>
+      <div
+        className="w-full max-w-md rounded-lg overflow-hidden"
+        style={{ background: '#FFFFFF', boxShadow: '0 8px 32px rgba(0,0,0,0.25)' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-4 py-3" style={{ borderBottom: '1px solid #EEEEEE' }}>
+          <p className="text-[15px] font-bold text-[#1D1C1D] mb-2">新規メッセージ</p>
+          <div className="flex items-center gap-2 px-3 py-2 rounded" style={{ border: '1px solid #1D9BD1', boxShadow: '0 0 0 1px #1D9BD1' }}>
+            <svg className="w-4 h-4 text-[#616061] flex-shrink-0" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+            </svg>
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="名前で検索"
+              className="flex-1 text-[14px] focus:outline-none"
+              autoFocus
+            />
+          </div>
+        </div>
+        <div className="max-h-72 overflow-y-auto py-1">
+          {filtered.length === 0 && (
+            <p className="text-[13px] text-[#616061] px-4 py-3">ユーザーが見つかりません</p>
+          )}
+          {filtered.map((u) => (
+            <button
+              key={u.uid}
+              onClick={() => { onSelect(u); onClose(); }}
+              className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#F8F8F8] transition-colors text-left"
+            >
+              <div className="relative flex-shrink-0">
+                {u.photoURL ? (
+                  <img src={u.photoURL} alt={u.displayName} className="w-9 h-9 rounded object-cover" />
+                ) : (
+                  <div className="w-9 h-9 rounded flex items-center justify-center text-white font-bold" style={{ background: '#1164A3' }}>
+                    {u.displayName[0].toUpperCase()}
+                  </div>
+                )}
+                <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white ${u.online ? 'bg-[#007A5A]' : 'bg-[#AAAAAA]'}`} />
+              </div>
+              <div>
+                <p className="text-[14px] font-semibold text-[#1D1C1D]">{u.displayName}</p>
+                <p className="text-[12px] text-[#616061]">{u.online ? 'アクティブ' : 'オフライン'}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
 export default function Sidebar() {
   const setMobileSidebarOpen = useAppStore((s) => s.setMobileSidebarOpen);
   const channels = useAppStore((s) => s.channels);
@@ -12,31 +85,23 @@ export default function Sidebar() {
   const setActiveChannel = useAppStore((s) => s.setActiveChannel);
   const addChannel = useAppStore((s) => s.addChannel);
   const { user } = useAppStore((s) => s.auth);
+  const users = useAppStore((s) => s.users);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [users, setUsers] = useState<User[]>([]);
+  const [showNewDM, setShowNewDM] = useState(false);
   const [dmLoading, setDmLoading] = useState<string | null>(null);
   const [channelsOpen, setChannelsOpen] = useState(true);
   const [dmOpen, setDmOpen] = useState(true);
   const [inviteCopied, setInviteCopied] = useState(false);
 
-  useEffect(() => {
-    const unsub = subscribeToUsers((u) => setUsers(u));
-    return () => unsub();
-  }, []);
-
   const currentUser = users.find((u) => u.uid === user?.uid) ?? user;
   const otherUsers = users.filter((u) => u.uid !== user?.uid);
-
-  // 通常チャンネルのみ（DM除外）
   const regularChannels = channels.filter((c) => !c.name.startsWith('__dm__'));
-
 
   const handleOpenDM = async (otherUser: User) => {
     if (!user) return;
     setDmLoading(otherUser.uid);
     try {
       const channelId = await getOrCreateDMChannel(user.uid, otherUser.uid);
-      // Race condition guard: pre-populate store if onSnapshot hasn't fired yet
       const existing = useAppStore.getState().channels.find((c) => c.id === channelId);
       if (!existing) {
         addChannel({
@@ -67,14 +132,14 @@ export default function Sidebar() {
   };
 
   return (
-    <div className="flex flex-col h-full" style={{ background: '#3F0E40' }}>
+    <nav aria-label="ワークスペースナビゲーション" className="flex flex-col h-full" style={{ background: '#3F0E40' }}>
 
       {/* ── Workspace header ── */}
       <div
-        className="px-3 flex items-center justify-between flex-shrink-0 cursor-pointer hover:bg-white/10 transition-colors"
+        className="px-3 flex items-center justify-between flex-shrink-0"
         style={{ minHeight: '49px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}
       >
-        <div className="flex items-center gap-1.5 min-w-0">
+        <div className="flex items-center gap-1.5 min-w-0 cursor-pointer hover:opacity-80 transition-opacity">
           <span className="text-white font-bold text-[15px] truncate">Creatte</span>
           <svg className="w-4 h-4 text-white/60 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
             <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
@@ -83,13 +148,13 @@ export default function Sidebar() {
         <div className="flex items-center gap-1">
           <button
             title="新規メッセージ"
+            onClick={() => setShowNewDM(true)}
             className="w-7 h-7 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 transition-colors flex-shrink-0"
           >
             <svg className="w-[15px] h-[15px] text-white" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
             </svg>
           </button>
-          {/* Mobile: close drawer button */}
           <button
             onClick={() => setMobileSidebarOpen(false)}
             className="md:hidden w-7 h-7 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 transition-colors flex-shrink-0"
@@ -147,17 +212,15 @@ export default function Sidebar() {
                         color: isActive ? '#FFFFFF' : '#CFC3CF',
                         fontWeight: isActive ? 600 : 400,
                       }}
-                      onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = '#FFFFFF'; }}
+                      onMouseEnter={(e) => { if (!isActive) { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = '#FFFFFF'; } }}
                       onMouseLeave={(e) => { if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#CFC3CF'; } }}
                     >
                       <span className="text-[15px] opacity-70 flex-shrink-0">#</span>
-                      <span className="truncate">{ch.name}</span>
+                      <span className="truncate flex-1 text-left">{ch.name}</span>
                     </button>
                   </li>
                 );
               })}
-
-              {/* チャンネルを追加 */}
               <li>
                 <button
                   onClick={() => setShowAddModal(true)}
@@ -176,7 +239,7 @@ export default function Sidebar() {
         <div className="mt-3">
           <button
             onClick={() => setDmOpen((v) => !v)}
-            className="w-full flex items-center gap-1 px-3 py-[3px] text-[#CFC3CF] hover:text-white transition-colors"
+            className="w-full flex items-center gap-1 px-3 py-[3px] text-[#CFC3CF] hover:text-white transition-colors group"
           >
             <svg
               className={`w-[10px] h-[10px] transition-transform flex-shrink-0 ${dmOpen ? 'rotate-0' : '-rotate-90'}`}
@@ -185,6 +248,14 @@ export default function Sidebar() {
               <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
             </svg>
             <span className="text-[13px] font-semibold">ダイレクトメッセージ</span>
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowNewDM(true); }}
+              className="ml-auto w-4 h-4 flex items-center justify-center rounded text-[#CFC3CF] hover:text-white hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-all"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+            </button>
           </button>
 
           {dmOpen && (
@@ -210,7 +281,6 @@ export default function Sidebar() {
                 </button>
               </li>
 
-              {/* 他のユーザー */}
               {otherUsers.map((u) => {
                 const isActive = isDMActive(u);
                 const isLoading = dmLoading === u.uid;
@@ -310,6 +380,14 @@ export default function Sidebar() {
       </div>
 
       {showAddModal && <AddChannelModal onClose={() => setShowAddModal(false)} />}
-    </div>
+      {showNewDM && user && (
+        <NewDMModal
+          users={users}
+          currentUid={user.uid}
+          onSelect={handleOpenDM}
+          onClose={() => setShowNewDM(false)}
+        />
+      )}
+    </nav>
   );
 }

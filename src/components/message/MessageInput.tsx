@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, KeyboardEvent } from 'react';
 import { useAppStore } from '../../store/useAppStore';
-import { sendMessage, subscribeToUsers } from '../../services';
+import { sendMessage } from '../../services';
+import { toast } from '../ui/Toast';
 import type { User } from '../../types';
 
 // ─── HTML → Markdown conversion ─────────────────────────────────────────────
@@ -109,6 +110,8 @@ function ToolBtn({
   return (
     <button
       title={title}
+      aria-label={title}
+      aria-pressed={active}
       onClick={onClick}
       onMouseDown={onMouseDown}
       className="w-7 h-7 flex items-center justify-center rounded transition-colors flex-shrink-0"
@@ -137,16 +140,20 @@ const BLOCKQUOTE_STYLE = "border-left:3px solid #DDDDDD;margin:4px 0;padding:2px
 export default function MessageInput() {
   const activeChannelId = useAppStore((s) => s.activeChannelId);
   const channels = useAppStore((s) => s.channels);
+  const messages = useAppStore((s) => s.messages);
   const { user } = useAppStore((s) => s.auth);
+  const users = useAppStore((s) => s.users);
+  const setEditingMessageId = useAppStore((s) => s.setEditingMessageId);
 
   const [sending, setSending] = useState(false);
-  const [users, setUsers] = useState<User[]>([]);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestQuery, setSuggestQuery] = useState('');
   const [suggestIndex, setSuggestIndex] = useState(0);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [isEmpty, setIsEmpty] = useState(true);
   const [showTopBar, setShowTopBar] = useState(true);
+  const [charCount, setCharCount] = useState(0);
+  const lastSentAtRef = useRef<number>(0);  // rate limiting
 
   // Active format states (updated on selectionchange)
   const [fmt, setFmt] = useState({ bold: false, italic: false, underline: false, strike: false });
@@ -172,11 +179,6 @@ export default function MessageInput() {
   const placeholder = isDM
     ? `${dmOtherUser?.displayName ?? 'ダイレクトメッセージ'} にメッセージを送信`
     : channel ? `#${channel.name} にメッセージを送信` : 'メッセージを送信';
-
-  useEffect(() => {
-    const unsub = subscribeToUsers((u) => setUsers(u));
-    return () => unsub();
-  }, []);
 
   // Reset editor on channel change
   useEffect(() => {
@@ -240,7 +242,19 @@ export default function MessageInput() {
 
   const commitLink = () => {
     if (!linkUrl.trim()) { setLinkPopupOpen(false); return; }
-    const url = /^https?:\/\//i.test(linkUrl.trim()) ? linkUrl.trim() : `https://${linkUrl.trim()}`;
+    const rawUrl = linkUrl.trim();
+    // http/https のみ許可（javascript: / data: などを拒否）
+    const withProtocol = /^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`;
+    // URL文字として無効な文字を除去（XSS対策）
+    let safeUrl: string;
+    try {
+      safeUrl = new URL(withProtocol).toString();
+    } catch {
+      setLinkPopupOpen(false);
+      return; // 無効なURLは無視
+    }
+    if (!/^https?:\/\//i.test(safeUrl)) { setLinkPopupOpen(false); return; }
+
     const sel = window.getSelection();
     editableRef.current?.focus();
     if (savedRangeRef.current) {
@@ -248,14 +262,19 @@ export default function MessageInput() {
       sel?.addRange(savedRangeRef.current);
     }
     if (linkText.trim() && savedRangeRef.current?.collapsed) {
-      // No selection → insert link with custom text
-      document.execCommand('insertHTML', false,
-        `<a href="${url}" style="color:#1264A3;text-decoration:underline" target="_blank" rel="noopener noreferrer">${linkText.trim()}</a>\u00A0`);
+      // テキスト指定あり・選択範囲なし → DOM APIで安全にリンク挿入
+      const a = document.createElement('a');
+      a.href = safeUrl;
+      a.textContent = linkText.trim();
+      a.style.color = '#1264A3';
+      a.style.textDecoration = 'underline';
+      a.setAttribute('target', '_blank');
+      a.setAttribute('rel', 'noopener noreferrer');
+      document.execCommand('insertHTML', false, a.outerHTML + '\u00A0');
     } else {
-      // Wrap selection in link
-      document.execCommand('createLink', false, url);
-      // Apply styling to the newly created link
-      const links = editableRef.current?.querySelectorAll('a:not([style])') ?? [];
+      // 選択範囲をリンクで囲む
+      document.execCommand('createLink', false, safeUrl);
+      const links = editableRef.current?.querySelectorAll(`a[href="${safeUrl}"]`) ?? [];
       links.forEach((a) => {
         (a as HTMLElement).style.color = '#1264A3';
         (a as HTMLElement).style.textDecoration = 'underline';
@@ -371,8 +390,10 @@ export default function MessageInput() {
   const handleInput = () => {
     const el = editableRef.current;
     if (!el) return;
-    const raw = el.innerText?.replace(/\n/g, '').trim() ?? '';
-    setIsEmpty(raw.length === 0 && attachedFiles.length === 0);
+    const raw = el.innerText ?? '';
+    const len = raw.replace(/\n/g, '').trim().length;
+    setIsEmpty(len === 0 && attachedFiles.length === 0);
+    setCharCount(raw.length);
 
     const textBefore = getTextBeforeCaret(el);
     const atMatch = textBefore.match(/@(\w*)$/);
@@ -438,6 +459,17 @@ export default function MessageInput() {
       }
     }
 
+    // ↑ キーで最後の自分のメッセージを編集
+    if (e.key === 'ArrowUp' && isEmpty && activeChannelId && user) {
+      const channelMsgs = messages[activeChannelId] ?? [];
+      const lastOwn = [...channelMsgs].reverse().find((m) => m.uid === user.uid);
+      if (lastOwn) {
+        e.preventDefault();
+        setEditingMessageId(lastOwn.id);
+        return;
+      }
+    }
+
     // Enter / Shift+Enter
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); return; }
     if (e.key === 'Enter' && e.shiftKey)  { e.preventDefault(); document.execCommand('insertLineBreak'); return; }
@@ -454,20 +486,29 @@ export default function MessageInput() {
     if (!el || !activeChannelId || !user || sending) return;
     if (isEmpty && attachedFiles.length === 0) return;
 
+    // Rate limiting: 1秒に1回まで
+    const now = Date.now();
+    if (now - lastSentAtRef.current < 1000) {
+      toast.info('少し待ってから送信してください');
+      return;
+    }
+
     const html = el.innerHTML;
     let markdown = htmlToMarkdown(html);
 
-    // Append file names to message
+    // ファイル名をテキストとして追記
     if (attachedFiles.length > 0) {
-      const fileList = attachedFiles.map((f) => `📎 ${f.name}`).join('\n');
+      const fileList = attachedFiles.map((f) => `📎 ${f.name.slice(0, 100)}`).join('\n');
       markdown = markdown ? `${markdown}\n${fileList}` : fileList;
     }
 
     if (!markdown.trim()) return;
     const mentions = parseMentionsFromHTML(html);
     setSending(true);
+    lastSentAtRef.current = now;
     el.innerHTML = '';
     setIsEmpty(true);
+    setCharCount(0);
     setAttachedFiles([]);
     setSuggestOpen(false);
     try {
@@ -476,6 +517,7 @@ export default function MessageInput() {
       console.error('Send error:', err);
       el.innerHTML = html;
       setIsEmpty(false);
+      toast.error('メッセージの送信に失敗しました');
     } finally {
       setSending(false);
       el.focus();
@@ -711,6 +753,9 @@ export default function MessageInput() {
           <div
             ref={editableRef}
             contentEditable={!sending}
+            role="textbox"
+            aria-multiline="true"
+            aria-label={placeholder}
             onInput={handleInput}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
@@ -791,11 +836,21 @@ export default function MessageInput() {
         </div>
       </div>
 
-      <p className="hidden md:block text-[12px] text-[#616061] mt-1 px-1">
-        <kbd className="font-mono bg-[#F8F8F8] border border-[#DDDDDD] rounded px-1">Enter</kbd> で送信・
-        <kbd className="font-mono bg-[#F8F8F8] border border-[#DDDDDD] rounded px-1">Shift+Enter</kbd> で改行・
-        <kbd className="font-mono bg-[#F8F8F8] border border-[#DDDDDD] rounded px-1">Ctrl+B/I/U</kbd> で書式
-      </p>
+      <div className="hidden md:flex items-center justify-between mt-1 px-1">
+        <p className="text-[12px] text-[#616061]">
+          <kbd className="font-mono bg-[#F8F8F8] border border-[#DDDDDD] rounded px-1">Enter</kbd> で送信・
+          <kbd className="font-mono bg-[#F8F8F8] border border-[#DDDDDD] rounded px-1">Shift+Enter</kbd> で改行・
+          <kbd className="font-mono bg-[#F8F8F8] border border-[#DDDDDD] rounded px-1">Ctrl+/</kbd> でショートカット一覧
+        </p>
+        {charCount > 3500 && (
+          <span
+            className="text-[12px] font-medium flex-shrink-0 ml-2"
+            style={{ color: charCount > 4000 ? '#E01E5A' : '#E8A000' }}
+          >
+            {charCount} / 4000
+          </span>
+        )}
+      </div>
     </div>
   );
 }

@@ -4,13 +4,32 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Creatte チームチャット" />
-    <title>Creatte</title>
-    <script type="module" crossorigin src="/assets/index-D3qce3Gd.js"></script>
-    <link rel="modulepreload" crossorigin href="/assets/react-vendor--ejHCorC.js">
-    <link rel="modulepreload" crossorigin href="/assets/vendor-BsrEXlAY.js">
-    <link rel="modulepreload" crossorigin href="/assets/firebase-oP5QC6YU.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-nqouH9MP.css">
+    <!-- Theme color for mobile browser chrome -->
+    <meta name="theme-color" content="#3F0E40" />
+    <!-- Content-Security-Policy: Firebase SDK requires unsafe-eval for Firestore -->
+    <meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com wss://*.firebaseio.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:;" />
+
+    <!-- Primary meta -->
+    <title>Creatte | クリエット独自チャットアプリ</title>
+    <meta name="description" content="Creatte（クリエット）が独自に開発したチームチャットアプリです。チャンネルごとのリアルタイムメッセージング・スレッド・リアクション・ピン留めリンクなど、チームのコミュニケーションに必要な機能を一つに集約しています。" />
+
+    <!-- OGP (Facebook / LINE / Slack など) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Creatte | クリエット独自チャットアプリ" />
+    <meta property="og:description" content="Creatte（クリエット）が独自に開発したチームチャットアプリです。チャンネルごとのリアルタイムメッセージング・スレッド・リアクション・ピン留めリンクなど、チームのコミュニケーションに必要な機能を一つに集約しています。" />
+    <meta property="og:site_name" content="Creatte Chat" />
+    <meta property="og:locale" content="ja_JP" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Creatte | クリエット独自チャットアプリ" />
+    <meta name="twitter:description" content="Creatte（クリエット）が独自に開発したチームチャットアプリです。チャンネルごとのリアルタイムメッセージング・スレッド・リアクション・ピン留めリンクなど、チームのコミュニケーションに必要な機能を一つに集約しています。" />
+    <script type="module" crossorigin src="/assets/index-aGe-Acud.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/react-vendor-DWss6gt0.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-qEsrlc56.js">
+    <link rel="modulepreload" crossorigin href="/assets/firebase-B7OFXJDD.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-CjUIKN39.css">
   </head>
   <body>
     <div id="root"></div>

@@ -15,6 +15,7 @@ import {
   setDoc,
   arrayUnion,
   arrayRemove,
+  increment,
 } from 'firebase/firestore';
 import {
   signInWithPopup,
@@ -111,6 +112,45 @@ export function subscribeToUsers(callback: (users: User[]) => void) {
     }));
     callback(users);
   });
+}
+
+/**
+ * オンラインプレゼンスのハートビート設定
+ * - visibilitychange で online/offline を更新
+ * - 5分ごとに lastSeen を更新してスタールな「オンライン」表示を防ぐ
+ */
+export function setupOnlinePresence(uid: string): () => void {
+  const userRef = doc(db, 'users', uid);
+
+  const setOnline = () => {
+    updateDoc(userRef, { online: true, lastSeen: serverTimestamp() }).catch(() => {});
+  };
+  const setOffline = () => {
+    updateDoc(userRef, { online: false, lastSeen: serverTimestamp() }).catch(() => {});
+  };
+
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === 'visible') {
+      setOnline();
+    } else {
+      setOffline();
+    }
+  };
+
+  // ハートビート: 5分ごとに lastSeen を更新
+  const heartbeatId = setInterval(setOnline, 5 * 60 * 1000);
+
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+
+  // beforeunload でオフラインに設定
+  const handleUnload = () => setOffline();
+  window.addEventListener('beforeunload', handleUnload);
+
+  return () => {
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    window.removeEventListener('beforeunload', handleUnload);
+    clearInterval(heartbeatId);
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -218,8 +258,10 @@ export async function sendMessage(
   mentions: string[] = [],
   dmRecipientUid?: string
 ): Promise<void> {
+  // 文字数上限（4000文字）
+  const safeText = text.slice(0, 4000);
   const msgRef = await addDoc(collection(db, 'channels', channelId, 'messages'), {
-    text,
+    text: safeText,
     uid: user.uid,
     displayName: user.displayName,
     photoURL: user.photoURL,
@@ -255,7 +297,8 @@ export async function updateMessage(
   text: string
 ): Promise<void> {
   await updateDoc(doc(db, 'channels', channelId, 'messages', messageId), {
-    text,
+    text: text.slice(0, 4000),
+    editedAt: serverTimestamp(),
   });
 }
 
@@ -298,21 +341,16 @@ export async function sendThreadReply(
     collection(db, 'channels', channelId, 'messages', messageId, 'threads'),
     {
       messageId,
-      text,
+      text: text.slice(0, 4000),
       uid: user.uid,
       displayName: user.displayName,
       photoURL: user.photoURL,
       createdAt: serverTimestamp(),
     }
   );
-  // Increment threadCount on parent message
+  // increment(1) でレースコンディションを防ぐ
   const msgRef = doc(db, 'channels', channelId, 'messages', messageId);
-  const snap = await getDocs(
-    query(
-      collection(db, 'channels', channelId, 'messages', messageId, 'threads')
-    )
-  );
-  await updateDoc(msgRef, { threadCount: snap.size });
+  await updateDoc(msgRef, { threadCount: increment(1) });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

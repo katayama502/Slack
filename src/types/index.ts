@@ -34,6 +34,7 @@ export interface Message {
   displayName: string;
   photoURL: string | null;
   createdAt: Timestamp;
+  editedAt?: Timestamp;
   mentions?: string[];     // uid[]
   threadCount?: number;
   reactions?: Record<string, string[]>; // emoji → uid[]
@@ -127,14 +128,20 @@ export interface AppStore {
   markNotificationRead: (notifId: string) => void;
   markAllNotificationsRead: () => void;
 
+  // ── Users (centralized) ───────────────────────────────────────────────────
+  users: User[];
+  setUsers: (users: User[]) => void;
+
   // ── UI State ──────────────────────────────────────────────────────────────
   sidebarOpen: boolean;
   threadPanelMessageId: string | null;
   searchQuery: string;
   notificationsPanelOpen: boolean;
+  editingMessageId: string | null;
   setSidebarOpen: (open: boolean) => void;
   openThreadPanel: (messageId: string) => void;
   closeThreadPanel: () => void;
   setSearchQuery: (q: string) => void;
   setNotificationsPanelOpen: (open: boolean) => void;
+  setEditingMessageId: (id: string | null) => void;
 }

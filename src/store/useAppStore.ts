@@ -153,11 +153,16 @@ export const useAppStore = create<ExtendedStore>((set, _get) => ({
     set({ activeThreadMessageId: messageId, threadMessages: [] }),
   setThreadMessages: (threads: Thread[]) => set({ threadMessages: threads }),
 
+  // ── Users (centralized) ───────────────────────────────────────────────────
+  users: [],
+  setUsers: (users: User[]) => set({ users }),
+
   // ── UI State ──────────────────────────────────────────────────────────────
   sidebarOpen: true,
   threadPanelMessageId: null,
   searchQuery: '',
   notificationsPanelOpen: false,
+  editingMessageId: null,
   setSidebarOpen: (open: boolean) => set({ sidebarOpen: open }),
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   mobileSidebarOpen: false,
@@ -168,4 +173,5 @@ export const useAppStore = create<ExtendedStore>((set, _get) => ({
     set({ threadPanelMessageId: null, activeThreadMessageId: null }),
   setSearchQuery: (searchQuery: string) => set({ searchQuery }),
   setNotificationsPanelOpen: (notificationsPanelOpen: boolean) => set({ notificationsPanelOpen }),
+  setEditingMessageId: (editingMessageId: string | null) => set({ editingMessageId }),
 }));

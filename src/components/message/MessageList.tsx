@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useAppStore } from '../../store/useAppStore';
 import { useMessages } from '../../hooks/useMessages';
@@ -49,8 +49,9 @@ export default function MessageList() {
     : allMessages;
   const parentRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
+  const [showJumpBtn, setShowJumpBtn] = useState(false);
 
-  const rows = buildRows(messages);
+  const rows = useMemo(() => buildRows(messages), [messages]);
 
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -67,12 +68,19 @@ export default function MessageList() {
     overscan: 10,
   });
 
+  const scrollToBottom = () => {
+    if (parentRef.current) {
+      parentRef.current.scrollTop = parentRef.current.scrollHeight;
+    }
+  };
+
   // Track if user is scrolled to bottom
   const handleScroll = () => {
     const el = parentRef.current;
     if (!el) return;
     const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     isAtBottomRef.current = distFromBottom < 80;
+    setShowJumpBtn(distFromBottom > 200);
   };
 
   // Auto-scroll to bottom when new messages arrive and user is at bottom
@@ -105,6 +113,18 @@ export default function MessageList() {
   }, [activeChannelId]);
 
   if (messages.length === 0) {
+    // 検索中でゼロ件
+    if (searchQuery.trim()) {
+      return (
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 px-5">
+          <svg className="w-12 h-12 text-[#DDDDDD]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+          </svg>
+          <p className="text-[15px] font-bold text-[#1D1C1D]">「{searchQuery}」に一致するメッセージはありません</p>
+          <p className="text-[13px] text-[#616061]">別のキーワードで検索してみてください</p>
+        </div>
+      );
+    }
     return (
       <div className="flex-1 flex flex-col justify-end px-5 pb-4">
         <div
@@ -124,10 +144,14 @@ export default function MessageList() {
   }
 
   return (
+    <div className="relative flex-1 min-h-0">
     <div
       ref={parentRef}
+      role="log"
+      aria-label="メッセージ一覧"
+      aria-live="polite"
       onScroll={handleScroll}
-      className="flex-1 overflow-y-auto"
+      className="h-full overflow-y-auto"
     >
       <div
         style={{
@@ -174,12 +198,28 @@ export default function MessageList() {
                   message={row.message}
                   isCompact={row.isCompact}
                   onThreadClick={openThreadPanel}
+                  searchQuery={searchQuery}
                 />
               )}
             </div>
           );
         })}
       </div>
+    </div>
+
+    {/* Jump to bottom button */}
+    {showJumpBtn && (
+      <button
+        onClick={scrollToBottom}
+        className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[13px] font-medium text-white shadow-lg transition-all z-10"
+        style={{ background: '#1164A3' }}
+      >
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+        最新メッセージへ
+      </button>
+    )}
     </div>
   );
 }

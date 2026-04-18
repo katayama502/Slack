@@ -1,28 +1,61 @@
-import { useState } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import { deleteMessage, updateMessage, toggleReaction } from '../../services';
-import { formatMessageTime } from '../../utils/formatDate';
+import { formatMessageTime, formatFullDateTime } from '../../utils/formatDate';
 import { renderMarkdown } from '../../utils/markdown';
+import { toast } from '../ui/Toast';
 import type { Message } from '../../types';
 
 interface Props {
   message: Message;
   isCompact: boolean;
   onThreadClick: (messageId: string) => void;
+  searchQuery?: string;
+}
+
+/** 検索クエリに一致するテキスト部分をハイライトする */
+function HighlightText({ text, query }: { text: string; query: string }) {
+  if (!query.trim()) return <>{text}</>;
+  const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+  const parts = text.split(regex);
+  return (
+    <>
+      {parts.map((part, i) =>
+        regex.test(part) ? (
+          <mark key={i} style={{ background: '#FFE58F', color: '#1D1C1D', borderRadius: '2px', padding: '0 1px' }}>
+            {part}
+          </mark>
+        ) : (
+          <span key={i}>{part}</span>
+        )
+      )}
+    </>
+  );
 }
 
 const COMMON_REACTIONS = ['👍', '❤️', '😂', '🎉', '🔥', '👀'];
 
-export default function MessageItem({ message, isCompact, onThreadClick }: Props) {
+function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' }: Props) {
   const { user } = useAppStore((s) => s.auth);
   const activeChannelId = useAppStore((s) => s.activeChannelId);
   const removeMessage = useAppStore((s) => s.removeMessage);
   const updateMsg = useAppStore((s) => s.updateMessage);
+  const editingMessageId = useAppStore((s) => s.editingMessageId);
+  const setEditingMessageId = useAppStore((s) => s.setEditingMessageId);
 
   const [showActions, setShowActions] = useState(false);
   const [showReactionPicker, setShowReactionPicker] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(message.text);
+
+  // ↑キーで編集トリガー: editingMessageId が自分のIDに設定されたら編集モードに入る
+  useEffect(() => {
+    if (editingMessageId === message.id) {
+      setEditing(true);
+      setEditText(message.text);
+      setEditingMessageId(null); // リセット
+    }
+  }, [editingMessageId, message.id, message.text, setEditingMessageId]);
 
   // Firestoreから取得したreactionsを使用
   const reactions = message.reactions ?? {};
@@ -36,17 +69,21 @@ export default function MessageItem({ message, isCompact, onThreadClick }: Props
       removeMessage(activeChannelId, message.id);
     } catch (err) {
       console.error('Delete error:', err);
+      toast.error('メッセージの削除に失敗しました');
     }
   };
 
   const handleEditSave = async () => {
-    if (!activeChannelId || editText.trim() === message.text) { setEditing(false); return; }
+    if (!activeChannelId) return;
+    if (editText.trim() === message.text) { setEditing(false); return; }
+    if (!editText.trim()) return;
     try {
       await updateMessage(activeChannelId, message.id, editText.trim());
       updateMsg(activeChannelId, message.id, { text: editText.trim() });
       setEditing(false);
     } catch (err) {
       console.error('Update error:', err);
+      toast.error('メッセージの編集に失敗しました');
     }
   };
 
@@ -56,12 +93,15 @@ export default function MessageItem({ message, isCompact, onThreadClick }: Props
       await toggleReaction(activeChannelId, message.id, emoji, user.uid, reactions);
     } catch (err) {
       console.error('Reaction error:', err);
+      toast.error('リアクションの更新に失敗しました');
     }
     setShowReactionPicker(false);
   };
 
   return (
     <div
+      role="article"
+      aria-label={`${message.displayName}のメッセージ`}
       className={`relative group flex gap-3 hover:bg-[#F8F8F8] transition-colors ${
         isCompact ? 'px-5 py-0.5' : 'px-5 pt-2 pb-1'
       }`}
@@ -81,7 +121,11 @@ export default function MessageItem({ message, isCompact, onThreadClick }: Props
       {/* Avatar / time gutter */}
       <div className="w-9 flex-shrink-0 pt-0.5">
         {isCompact ? (
-          <span className="text-[11px] text-[#616061] invisible group-hover:visible block text-right leading-5 mt-0.5" style={{ paddingRight: '2px' }}>
+          <span
+            title={formatFullDateTime(message.createdAt)}
+            className="text-[11px] text-[#616061] invisible group-hover:visible block text-right leading-5 mt-0.5 cursor-default"
+            style={{ paddingRight: '2px' }}
+          >
             {formatMessageTime(message.createdAt)}
           </span>
         ) : message.photoURL ? (
@@ -98,7 +142,12 @@ export default function MessageItem({ message, isCompact, onThreadClick }: Props
         {!isCompact && (
           <div className="flex items-baseline gap-2 mb-0.5">
             <span className="font-bold text-[15px] text-[#1D1C1D] hover:underline cursor-pointer leading-snug">{message.displayName}</span>
-            <span className="text-[12px] text-[#616061]">{formatMessageTime(message.createdAt)}</span>
+            <span
+              title={formatFullDateTime(message.createdAt)}
+              className="text-[12px] text-[#616061] cursor-default"
+            >
+              {formatMessageTime(message.createdAt)}
+            </span>
           </div>
         )}
 
@@ -124,7 +173,13 @@ export default function MessageItem({ message, isCompact, onThreadClick }: Props
           </div>
         ) : (
           <div className="text-[14px] text-[#1D1C1D] leading-relaxed">
-            {renderMarkdown(message.text)}
+            {searchQuery.trim()
+              ? <HighlightText text={message.text} query={searchQuery} />
+              : renderMarkdown(message.text)
+            }
+            {message.editedAt && (
+              <span className="text-[11px] text-[#616061] ml-1">(編集済み)</span>
+            )}
           </div>
         )}
 
@@ -212,3 +267,5 @@ export default function MessageItem({ message, isCompact, onThreadClick }: Props
     </div>
   );
 }
+
+export default memo(MessageItemInner);

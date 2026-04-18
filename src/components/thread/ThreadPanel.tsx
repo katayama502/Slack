@@ -2,8 +2,9 @@ import { useState, useRef, useEffect, KeyboardEvent } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import { useThreads } from '../../hooks/useThreads';
 import { sendThreadReply } from '../../services';
-import { formatMessageTime } from '../../utils/formatDate';
+import { formatMessageTime, formatFullDateTime } from '../../utils/formatDate';
 import { renderMarkdown } from '../../utils/markdown';
+import { toast } from '../ui/Toast';
 
 export default function ThreadPanel() {
   const { user } = useAppStore((s) => s.auth);
@@ -35,6 +36,7 @@ export default function ThreadPanel() {
     } catch (err) {
       console.error('Thread reply error:', err);
       setReplyText(trimmed);
+      toast.error('返信の送信に失敗しました');
     } finally {
       setSending(false);
     }
@@ -97,7 +99,11 @@ export default function ThreadPanel() {
                   <span className="font-bold text-[15px]" style={{ color: '#1D1C1D' }}>
                     {parentMessage.displayName}
                   </span>
-                  <span className="text-[12px]" style={{ color: '#616061' }}>
+                  <span
+                    className="text-[12px]"
+                    style={{ color: '#616061' }}
+                    title={formatFullDateTime(parentMessage.createdAt)}
+                  >
                     {formatMessageTime(parentMessage.createdAt)}
                   </span>
                 </div>
@@ -148,7 +154,11 @@ export default function ThreadPanel() {
                   <span className="font-bold text-[14px]" style={{ color: '#1D1C1D' }}>
                     {thread.displayName}
                   </span>
-                  <span className="text-[12px]" style={{ color: '#616061' }}>
+                  <span
+                    className="text-[12px]"
+                    style={{ color: '#616061' }}
+                    title={formatFullDateTime(thread.createdAt)}
+                  >
                     {formatMessageTime(thread.createdAt)}
                   </span>
                 </div>
@@ -178,6 +188,7 @@ export default function ThreadPanel() {
             onChange={(e) => setReplyText(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="返信を入力..."
+            aria-label="スレッドへの返信を入力"
             rows={2}
             disabled={sending}
             className="w-full px-3 pt-3 pb-1 text-[14px] resize-none focus:outline-none bg-transparent leading-relaxed placeholder-[#616061]"

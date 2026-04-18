@@ -82,9 +82,15 @@ function parseBlocks(text: string): BlockNode[] {
 //  closing delimiter must NOT be immediately preceded by whitespace
 //  closing delimiter must NOT be followed by \w
 
+/** URL がhttp/httpsのみかチェック（XSS防止） */
+function isSafeUrl(url: string): boolean {
+  return /^https?:\/\//i.test(url.trim());
+}
+
 function renderInline(text: string): React.ReactNode[] {
+  // Group 1: @mention  2: [text](url) link  3: bare URL  4: bold  5: italic  6: strike  7: code
   const pattern =
-    /(@\[[^\]]+\]\([^)]+\))|(https?:\/\/[^\s<>"]+[^\s<>".,;!?()'\]])|(?<!\w)\*([^\s*](?:[^*\n]*[^\s*])?)\*(?!\w)|(?<!\w)_([^\s_](?:[^_\n]*[^\s_])?)_(?!\w)|(?<!\w)~([^\s~](?:[^~\n]*[^\s~])?)~(?!\w)|`([^`\n]+)`/g;
+    /(@\[[^\]]+\]\([^)]+\))|(\[([^\]]+)\]\((https?:\/\/[^\s)]+)\))|(https?:\/\/[^\s<>"]+[^\s<>".,;!?()'\]])|(?<!\w)\*([^\s*](?:[^*\n]*[^\s*])?)\*(?!\w)|(?<!\w)_([^\s_](?:[^_\n]*[^\s_])?)_(?!\w)|(?<!\w)~([^\s~](?:[^~\n]*[^\s~])?)~(?!\w)|`([^`\n]+)`/g;
 
   const nodes: React.ReactNode[] = [];
   let lastIndex = 0;
@@ -117,11 +123,34 @@ function renderInline(text: string): React.ReactNode[] {
         </span>
       );
     } else if (match[2]) {
-      // URL auto-link
+      // [text](url) markdown link — only safe URLs
+      const linkText = match[3];
+      const linkUrl = match[4];
+      nodes.push(
+        isSafeUrl(linkUrl) ? (
+          <a
+            key={key}
+            href={linkUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: '#1264A3', textDecoration: 'none' }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {linkText}
+          </a>
+        ) : (
+          <span key={key}>{linkText}</span>
+        )
+      );
+    } else if (match[5]) {
+      // bare URL auto-link — only allow http/https (prevent javascript:/data: XSS)
+      const rawUrl = match[5];
       nodes.push(
         <a
           key={key}
-          href={match[2]}
+          href={rawUrl}
           target="_blank"
           rel="noopener noreferrer"
           style={{ color: '#1264A3', textDecoration: 'none' }}
@@ -129,20 +158,20 @@ function renderInline(text: string): React.ReactNode[] {
           onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
           onClick={(e) => e.stopPropagation()}
         >
-          {match[2]}
+          {rawUrl}
         </a>
       );
-    } else if (match[3] !== undefined) {
-      // *bold*
-      nodes.push(<strong key={key} style={{ fontWeight: 700 }}>{match[3]}</strong>);
-    } else if (match[4] !== undefined) {
-      // _italic_
-      nodes.push(<em key={key} style={{ fontStyle: 'italic' }}>{match[4]}</em>);
-    } else if (match[5] !== undefined) {
-      // ~strikethrough~
-      nodes.push(<s key={key} style={{ textDecoration: 'line-through' }}>{match[5]}</s>);
     } else if (match[6] !== undefined) {
-      // `inline code`  — Block Kit: rich_text_section code element
+      // *bold*
+      nodes.push(<strong key={key} style={{ fontWeight: 700 }}>{match[6]}</strong>);
+    } else if (match[7] !== undefined) {
+      // _italic_
+      nodes.push(<em key={key} style={{ fontStyle: 'italic' }}>{match[7]}</em>);
+    } else if (match[8] !== undefined) {
+      // ~strikethrough~
+      nodes.push(<s key={key} style={{ textDecoration: 'line-through' }}>{match[8]}</s>);
+    } else if (match[9] !== undefined) {
+      // `inline code`
       nodes.push(
         <code
           key={key}
@@ -156,7 +185,7 @@ function renderInline(text: string): React.ReactNode[] {
             color: '#E01E5A',
           }}
         >
-          {match[6]}
+          {match[9]}
         </code>
       );
     }

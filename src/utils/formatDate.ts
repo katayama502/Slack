@@ -16,6 +16,14 @@ export function formatMessageTime(timestamp: Timestamp | null | undefined): stri
 }
 
 /**
+ * ホバー時に表示するフル日時
+ */
+export function formatFullDateTime(timestamp: Timestamp | null | undefined): string {
+  const date = toDate(timestamp);
+  return format(date, 'yyyy年M月d日（E） HH:mm', { locale: ja });
+}
+
+/**
  * 日付区切りラベルを返す
  * - 今日 → "今日"
  * - 昨日 → "昨日"

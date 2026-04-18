@@ -13,13 +13,14 @@ import { getStorage, FirebaseStorage } from 'firebase/storage';
 // ─────────────────────────────────────────────────────────────────────────────
 // Firebase 設定 (環境変数 VITE_FIREBASE_* から読み込み)
 // ─────────────────────────────────────────────────────────────────────────────
+// 認証情報は .env ファイルから読み込む（ハードコード禁止）
 const firebaseConfig = {
-  apiKey:            "AIzaSyDbekfSWP6gVnGIxZp2Cr26PsRz2qveXAY",
-  authDomain:        "grobes-app.firebaseapp.com",
-  projectId:         "grobes-app",
-  storageBucket:     "grobes-app.firebasestorage.app",
-  messagingSenderId: "980585133032",
-  appId:             "1:980585133032:web:72a770dda1f33358f1aa5d",
+  apiKey:            import.meta.env.VITE_FIREBASE_API_KEY            as string,
+  authDomain:        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN        as string,
+  projectId:         import.meta.env.VITE_FIREBASE_PROJECT_ID         as string,
+  storageBucket:     import.meta.env.VITE_FIREBASE_STORAGE_BUCKET     as string,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID as string,
+  appId:             import.meta.env.VITE_FIREBASE_APP_ID             as string,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
