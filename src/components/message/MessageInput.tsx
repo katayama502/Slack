@@ -479,8 +479,23 @@ export default function MessageInput() {
     }
 
     // Enter / Shift+Enter
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); return; }
-    if (e.key === 'Enter' && e.shiftKey)  { e.preventDefault(); document.execCommand('insertLineBreak'); return; }
+    if (e.key === 'Enter') {
+      const el = editableRef.current;
+      const insideList = el ? (isInsideTag('li', el) || isInsideTag('ul', el) || isInsideTag('ol', el)) : false;
+
+      if (insideList) {
+        if (e.shiftKey) {
+          // リスト内 Shift+Enter → 送信
+          e.preventDefault();
+          handleSend();
+        }
+        // リスト内 Enter → ブラウザのデフォルト（新しいリスト項目を追加）
+        return;
+      }
+
+      if (!e.shiftKey) { e.preventDefault(); handleSend(); return; }
+      e.preventDefault(); document.execCommand('insertLineBreak'); return;
+    }
   };
 
   const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
