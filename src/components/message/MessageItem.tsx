@@ -1,10 +1,11 @@
 import { useState, useEffect, memo } from 'react';
+import ReactDOM from 'react-dom';
 import { useAppStore } from '../../store/useAppStore';
 import { deleteMessage, updateMessage, toggleReaction } from '../../services';
 import { formatMessageTime, formatFullDateTime } from '../../utils/formatDate';
 import { renderMarkdown } from '../../utils/markdown';
 import { toast } from '../ui/Toast';
-import type { Message } from '../../types';
+import type { Message, User } from '../../types';
 
 interface Props {
   message: Message;
@@ -35,8 +36,77 @@ function HighlightText({ text, query }: { text: string; query: string }) {
 
 const COMMON_REACTIONS = ['👍', '❤️', '😂', '🎉', '🔥', '👀'];
 
+// ─── User profile popup ───────────────────────────────────────────────────────
+function UserProfilePopup({
+  user,
+  anchor,
+  onClose,
+}: {
+  user: User;
+  anchor: DOMRect;
+  onClose: () => void;
+}) {
+  const left = Math.min(anchor.left, window.innerWidth - 280);
+  const top = anchor.bottom + 8;
+
+  return ReactDOM.createPortal(
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div
+        className="fixed z-50 rounded-lg overflow-hidden"
+        style={{
+          top,
+          left,
+          width: 260,
+          background: '#FFFFFF',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+          border: '1px solid #E8E8E8',
+        }}
+      >
+        {/* Header bg */}
+        <div className="h-12" style={{ background: 'linear-gradient(135deg,#3F0E40,#1164A3)' }} />
+        <div className="px-4 pb-4">
+          <div className="-mt-7 mb-2 flex items-end justify-between">
+            {user.photoURL ? (
+              <img
+                src={user.photoURL}
+                alt={user.displayName}
+                className="w-14 h-14 rounded object-cover"
+                style={{ border: '3px solid #FFFFFF' }}
+              />
+            ) : (
+              <div
+                className="w-14 h-14 rounded flex items-center justify-center text-white text-xl font-bold"
+                style={{ background: '#1164A3', border: '3px solid #FFFFFF' }}
+              >
+                {user.displayName[0]?.toUpperCase() ?? '?'}
+              </div>
+            )}
+            <span
+              className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
+              style={{
+                background: user.online ? '#E3FCEF' : '#F8F8F8',
+                color: user.online ? '#007A5A' : '#616061',
+                border: `1px solid ${user.online ? '#B8F0DA' : '#DDDDDD'}`,
+              }}
+            >
+              {user.online ? 'アクティブ' : 'オフライン'}
+            </span>
+          </div>
+          <p className="text-[16px] font-bold text-[#1D1C1D] leading-tight">{user.displayName}</p>
+          {user.email && (
+            <p className="text-[12px] text-[#616061] mt-0.5 truncate">{user.email}</p>
+          )}
+        </div>
+      </div>
+    </>,
+    document.body
+  );
+}
+
 function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' }: Props) {
   const { user } = useAppStore((s) => s.auth);
+  const users = useAppStore((s) => s.users);
   const activeChannelId = useAppStore((s) => s.activeChannelId);
   const removeMessage = useAppStore((s) => s.removeMessage);
   const updateMsg = useAppStore((s) => s.updateMessage);
@@ -47,6 +117,8 @@ function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' 
   const [showReactionPicker, setShowReactionPicker] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(message.text);
+  const [profileUser, setProfileUser] = useState<User | null>(null);
+  const [profileAnchor, setProfileAnchor] = useState<DOMRect | null>(null);
 
   // ↑キーで編集トリガー: editingMessageId が自分のIDに設定されたら編集モードに入る
   useEffect(() => {
@@ -98,6 +170,33 @@ function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' 
     setShowReactionPicker(false);
   };
 
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(message.text);
+      toast.success('コピーしました');
+    } catch {
+      toast.error('コピーに失敗しました');
+    }
+  };
+
+  const handleAvatarClick = (e: React.MouseEvent) => {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const msgUser = users.find((u) => u.uid === message.uid);
+    if (msgUser) {
+      setProfileUser(msgUser);
+      setProfileAnchor(rect);
+    }
+  };
+
+  const handleNameClick = (e: React.MouseEvent) => {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const msgUser = users.find((u) => u.uid === message.uid);
+    if (msgUser) {
+      setProfileUser(msgUser);
+      setProfileAnchor(rect);
+    }
+  };
+
   return (
     <div
       role="article"
@@ -129,9 +228,19 @@ function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' 
             {formatMessageTime(message.createdAt)}
           </span>
         ) : message.photoURL ? (
-          <img src={message.photoURL} alt={message.displayName} className="w-9 h-9 object-cover" style={{ borderRadius: '4px' }} />
+          <img
+            src={message.photoURL}
+            alt={message.displayName}
+            className="w-9 h-9 object-cover cursor-pointer hover:opacity-80 transition-opacity"
+            style={{ borderRadius: '4px' }}
+            onClick={handleAvatarClick}
+          />
         ) : (
-          <div className="w-9 h-9 flex items-center justify-center text-white text-sm font-bold" style={{ borderRadius: '4px', background: '#1164A3' }}>
+          <div
+            className="w-9 h-9 flex items-center justify-center text-white text-sm font-bold cursor-pointer hover:opacity-80 transition-opacity"
+            style={{ borderRadius: '4px', background: '#1164A3' }}
+            onClick={handleAvatarClick}
+          >
             {message.displayName[0]?.toUpperCase() ?? '?'}
           </div>
         )}
@@ -141,7 +250,10 @@ function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' 
       <div className="flex-1 min-w-0">
         {!isCompact && (
           <div className="flex items-baseline gap-2 mb-0.5">
-            <span className="font-bold text-[15px] text-[#1D1C1D] hover:underline cursor-pointer leading-snug">{message.displayName}</span>
+            <span
+              className="font-bold text-[15px] text-[#1D1C1D] hover:underline cursor-pointer leading-snug"
+              onClick={handleNameClick}
+            >{message.displayName}</span>
             <span
               title={formatFullDateTime(message.createdAt)}
               className="text-[12px] text-[#616061] cursor-default"
@@ -201,6 +313,7 @@ function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' 
                 <button
                   key={emoji}
                   onClick={() => handleReaction(emoji)}
+                  title={uids.map((uid) => users.find((u) => u.uid === uid)?.displayName ?? uid).join(', ')}
                   className="flex items-center gap-0.5 text-[13px] px-2 py-0.5 transition-colors"
                   style={{
                     borderRadius: '24px',
@@ -214,6 +327,34 @@ function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' 
                 </button>
               ) : null
             )}
+            {/* + Add reaction button */}
+            <div className="relative">
+              <button
+                onClick={() => setShowReactionPicker((p) => !p)}
+                title="リアクションを追加"
+                className="flex items-center justify-center text-[13px] px-2 py-0.5 transition-colors"
+                style={{
+                  borderRadius: '24px',
+                  border: '1px solid #DDDDDD',
+                  background: '#F8F8F8',
+                  color: '#616061',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#BBBBBB'; e.currentTarget.style.background = '#F0F0F0'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#DDDDDD'; e.currentTarget.style.background = '#F8F8F8'; }}
+              >
+                <svg className="w-3.5 h-3.5 mr-0.5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                </svg>
+                <span>😊</span>
+              </button>
+              {showReactionPicker && (
+                <div className="absolute left-0 top-8 flex gap-0.5 p-1.5 z-20" style={{ background: '#FFFFFF', border: '1px solid #DDDDDD', borderRadius: '6px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}>
+                  {COMMON_REACTIONS.map((emoji) => (
+                    <button key={emoji} onClick={() => handleReaction(emoji)} className="w-8 h-8 flex items-center justify-center rounded hover:bg-[#F8F8F8] text-[18px]">{emoji}</button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -255,6 +396,13 @@ function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' 
             </button>
           )}
 
+          {/* Copy */}
+          <button onClick={handleCopy} title="コピー" className="w-8 h-8 flex items-center justify-center rounded hover:bg-[#F8F8F8] text-[#616061] hover:text-[#1D1C1D] transition-colors">
+            <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+            </svg>
+          </button>
+
           {isOwner && (
             <button onClick={handleDelete} title="削除" className="w-8 h-8 flex items-center justify-center rounded hover:bg-red-50 text-[#616061] hover:text-red-600 transition-colors">
               <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
@@ -263,6 +411,13 @@ function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' 
             </button>
           )}
         </div>
+      )}
+      {profileUser && profileAnchor && (
+        <UserProfilePopup
+          user={profileUser}
+          anchor={profileAnchor}
+          onClose={() => { setProfileUser(null); setProfileAnchor(null); }}
+        />
       )}
     </div>
   );

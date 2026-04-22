@@ -3,12 +3,13 @@ import { Timestamp } from 'firebase/firestore';
 import { useAppStore } from '../../store/useAppStore';
 import { signOut, getOrCreateDMChannel, getDMChannelName, joinChannelIfNeeded } from '../../services';
 import AddChannelModal from './AddChannelModal';
+import { useUnreadChannels, markChannelRead } from '../../hooks/useUnreadChannels';
 import type { User } from '../../types';
 
 // ─── New DM modal ─────────────────────────────────────────────────────────────
 function NewDMModal({
   users,
-  currentUid: currentUid,
+  currentUid,
   onSelect,
   onClose,
 }: {
@@ -86,16 +87,31 @@ export default function Sidebar() {
   const addChannel = useAppStore((s) => s.addChannel);
   const { user } = useAppStore((s) => s.auth);
   const users = useAppStore((s) => s.users);
+  const unreadChannels = useUnreadChannels();
+
   const [showAddModal, setShowAddModal] = useState(false);
   const [showNewDM, setShowNewDM] = useState(false);
   const [dmLoading, setDmLoading] = useState<string | null>(null);
   const [channelsOpen, setChannelsOpen] = useState(true);
   const [dmOpen, setDmOpen] = useState(true);
   const [inviteCopied, setInviteCopied] = useState(false);
+  const [channelSearch, setChannelSearch] = useState('');
 
   const currentUser = users.find((u) => u.uid === user?.uid) ?? user;
   const otherUsers = users.filter((u) => u.uid !== user?.uid);
   const regularChannels = channels.filter((c) => !c.name.startsWith('__dm__'));
+  const dmChannels = channels.filter((c) => c.name.startsWith('__dm__'));
+
+  const filteredChannels = channelSearch.trim()
+    ? regularChannels.filter((c) => c.name.toLowerCase().includes(channelSearch.toLowerCase()))
+    : regularChannels;
+
+  // DM: ユーザーと対応するDMチャンネルを紐付け
+  const dmUsers = otherUsers.map((u) => {
+    const dmName = user ? getDMChannelName(user.uid, u.uid) : '';
+    const dmCh = dmChannels.find((c) => c.name === dmName);
+    return { user: u, channelId: dmCh?.id ?? null };
+  });
 
   const handleOpenDM = async (otherUser: User) => {
     if (!user) return;
@@ -113,6 +129,7 @@ export default function Sidebar() {
           members: [user.uid, otherUser.uid],
         });
       }
+      markChannelRead(channelId);
       setActiveChannel(channelId);
     } catch (err) {
       console.error('DM open error:', err);
@@ -129,6 +146,12 @@ export default function Sidebar() {
     if (!user || !activeChannelId) return false;
     const ch = channels.find((c) => c.id === activeChannelId);
     return ch?.name === getDMChannelName(user.uid, otherUser.uid);
+  };
+
+  const handleSelectChannel = async (channelId: string) => {
+    if (user) await joinChannelIfNeeded(channelId, user.uid).catch(() => {});
+    markChannelRead(channelId);
+    setActiveChannel(channelId);
   };
 
   return (
@@ -168,7 +191,7 @@ export default function Sidebar() {
       </div>
 
       {/* ── Scrollable nav ── */}
-      <div className="flex-1 overflow-y-auto scrollbar-sidebar py-2">
+      <div className="flex-1 overflow-y-auto sidebar-scroll py-2">
 
         {/* ── チャンネルセクション ── */}
         <div className="mt-1">
@@ -194,44 +217,79 @@ export default function Sidebar() {
           </button>
 
           {channelsOpen && (
-            <ul className="mt-0.5">
-              {regularChannels.map((ch) => {
-                const isActive = ch.id === activeChannelId;
-                return (
-                  <li key={ch.id}>
-                    <button
-                      onClick={async () => {
-                        if (user) await joinChannelIfNeeded(ch.id, user.uid).catch(() => {});
-                        setActiveChannel(ch.id);
-                      }}
-                      className="flex items-center gap-2 py-[5px] pl-4 pr-3 rounded transition-colors text-[14px]"
-                      style={{
-                        width: 'calc(100% - 8px)',
-                        margin: '0 4px',
-                        background: isActive ? '#1164A3' : 'transparent',
-                        color: isActive ? '#FFFFFF' : '#CFC3CF',
-                        fontWeight: isActive ? 600 : 400,
-                      }}
-                      onMouseEnter={(e) => { if (!isActive) { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = '#FFFFFF'; } }}
-                      onMouseLeave={(e) => { if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#CFC3CF'; } }}
-                    >
-                      <span className="text-[15px] opacity-70 flex-shrink-0">#</span>
-                      <span className="truncate flex-1 text-left">{ch.name}</span>
-                    </button>
+            <>
+              {/* チャンネル検索 */}
+              {regularChannels.length > 4 && (
+                <div className="mx-3 mt-1 mb-1">
+                  <div className="flex items-center gap-1.5 px-2 py-1 rounded" style={{ background: 'rgba(255,255,255,0.08)' }}>
+                    <svg className="w-3 h-3 text-white/40 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                    </svg>
+                    <input
+                      type="text"
+                      value={channelSearch}
+                      onChange={(e) => setChannelSearch(e.target.value)}
+                      placeholder="チャンネルを検索"
+                      className="flex-1 text-[12px] bg-transparent focus:outline-none text-white placeholder-white/40"
+                    />
+                    {channelSearch && (
+                      <button onClick={() => setChannelSearch('')} className="text-white/40 hover:text-white">
+                        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+              <ul className="mt-0.5">
+                {filteredChannels.map((ch) => {
+                  const isActive = ch.id === activeChannelId;
+                  const hasUnread = unreadChannels.has(ch.id);
+                  return (
+                    <li key={ch.id}>
+                      <button
+                        onClick={() => handleSelectChannel(ch.id)}
+                        className="flex items-center gap-2 py-[5px] pl-4 pr-3 rounded transition-colors text-[14px]"
+                        style={{
+                          width: 'calc(100% - 8px)',
+                          margin: '0 4px',
+                          background: isActive ? '#1164A3' : 'transparent',
+                          color: isActive ? '#FFFFFF' : hasUnread ? '#FFFFFF' : '#CFC3CF',
+                          fontWeight: isActive || hasUnread ? 700 : 400,
+                        }}
+                        onMouseEnter={(e) => { if (!isActive) { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = '#FFFFFF'; } }}
+                        onMouseLeave={(e) => { if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = isActive ? '#FFFFFF' : hasUnread ? '#FFFFFF' : '#CFC3CF'; } }}
+                      >
+                        <span className="text-[15px] opacity-70 flex-shrink-0">#</span>
+                        <span className="truncate flex-1 text-left">{ch.name}</span>
+                        {hasUnread && !isActive && (
+                          <span
+                            className="flex-shrink-0 min-w-[8px] h-2 w-2 rounded-full"
+                            style={{ background: '#FFFFFF' }}
+                          />
+                        )}
+                      </button>
+                    </li>
+                  );
+                })}
+                {filteredChannels.length === 0 && channelSearch && (
+                  <li className="px-5 py-2 text-[12px] text-[#CFC3CF]/60">
+                    「{channelSearch}」に一致するチャンネルはありません
                   </li>
-                );
-              })}
-              <li>
-                <button
-                  onClick={() => setShowAddModal(true)}
-                  className="flex items-center gap-2 py-[5px] pl-4 pr-3 text-[#CFC3CF] hover:text-white hover:bg-white/10 transition-colors text-[14px] group"
-                  style={{ width: 'calc(100% - 8px)', margin: '0 4px', borderRadius: '4px' }}
-                >
-                  <span className="w-4 h-4 flex items-center justify-center rounded text-xs bg-[#CFC3CF]/25 group-hover:bg-white/20 flex-shrink-0">+</span>
-                  <span>チャンネルを追加</span>
-                </button>
-              </li>
-            </ul>
+                )}
+                <li>
+                  <button
+                    onClick={() => setShowAddModal(true)}
+                    className="flex items-center gap-2 py-[5px] pl-4 pr-3 text-[#CFC3CF] hover:text-white hover:bg-white/10 transition-colors text-[14px] group"
+                    style={{ width: 'calc(100% - 8px)', margin: '0 4px', borderRadius: '4px' }}
+                  >
+                    <span className="w-4 h-4 flex items-center justify-center rounded text-xs bg-[#CFC3CF]/25 group-hover:bg-white/20 flex-shrink-0">+</span>
+                    <span>チャンネルを追加</span>
+                  </button>
+                </li>
+              </ul>
+            </>
           )}
         </div>
 
@@ -281,9 +339,10 @@ export default function Sidebar() {
                 </button>
               </li>
 
-              {otherUsers.map((u) => {
+              {dmUsers.map(({ user: u, channelId: dmChannelId }) => {
                 const isActive = isDMActive(u);
                 const isLoading = dmLoading === u.uid;
+                const hasUnread = dmChannelId ? unreadChannels.has(dmChannelId) : false;
                 return (
                   <li key={u.uid}>
                     <button
@@ -295,11 +354,11 @@ export default function Sidebar() {
                         margin: '0 4px',
                         borderRadius: '4px',
                         background: isActive ? '#1164A3' : 'transparent',
-                        color: isActive ? '#FFFFFF' : '#CFC3CF',
-                        fontWeight: isActive ? 600 : 400,
+                        color: isActive ? '#FFFFFF' : hasUnread ? '#FFFFFF' : '#CFC3CF',
+                        fontWeight: isActive || hasUnread ? 700 : 400,
                       }}
                       onMouseEnter={(e) => { if (!isActive) { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = '#FFFFFF'; } }}
-                      onMouseLeave={(e) => { if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#CFC3CF'; } }}
+                      onMouseLeave={(e) => { if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = isActive ? '#FFFFFF' : hasUnread ? '#FFFFFF' : '#CFC3CF'; } }}
                     >
                       <div className="relative flex-shrink-0">
                         {u.photoURL ? (
@@ -317,6 +376,9 @@ export default function Sidebar() {
                       <span className="truncate flex-1 text-left">
                         {isLoading ? '接続中...' : u.displayName}
                       </span>
+                      {hasUnread && !isActive && (
+                        <span className="flex-shrink-0 w-2 h-2 rounded-full" style={{ background: '#FFFFFF' }} />
+                      )}
                     </button>
                   </li>
                 );

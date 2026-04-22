@@ -2,17 +2,21 @@ import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useAppStore } from '../../store/useAppStore';
 import { useMessages } from '../../hooks/useMessages';
+import { getLastVisit } from '../../hooks/useUnreadChannels';
 import MessageItem from './MessageItem';
 import { formatDateDivider, isSameDay, isCompactMessage } from '../../utils/formatDate';
-import type { Message } from '../../types';
+import type { Message, User } from '../../types';
 
 // Row types for the virtual list
 type DateDividerRow = { type: 'divider'; date: string; key: string };
+type UnreadDividerRow = { type: 'unread'; key: string };
 type MessageRow = { type: 'message'; message: Message; isCompact: boolean; key: string };
-type Row = DateDividerRow | MessageRow;
+type Row = DateDividerRow | UnreadDividerRow | MessageRow;
 
-function buildRows(messages: Message[]): Row[] {
+function buildRows(messages: Message[], lastVisitMs: number): Row[] {
   const rows: Row[] = [];
+  let unreadInserted = false;
+
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
     const prev = messages[i - 1];
@@ -24,6 +28,17 @@ function buildRows(messages: Message[]): Row[] {
         date: formatDateDivider(msg.createdAt),
         key: `divider-${msg.id}`,
       });
+    }
+
+    // 未読ライン: lastVisit より新しい最初のメッセージの前に挿入
+    if (
+      !unreadInserted &&
+      lastVisitMs > 0 &&
+      msg.createdAt &&
+      msg.createdAt.toMillis() > lastVisitMs
+    ) {
+      rows.push({ type: 'unread', key: 'unread-divider' });
+      unreadInserted = true;
     }
 
     const compact = prev
@@ -40,9 +55,73 @@ function buildRows(messages: Message[]): Row[] {
   return rows;
 }
 
+function EmptyChannelState({ channelId }: { channelId: string }) {
+  const channels = useAppStore((s) => s.channels);
+  const users = useAppStore((s) => s.users);
+  const { user } = useAppStore((s) => s.auth);
+  const channel = channels.find((c) => c.id === channelId);
+
+  if (!channel) return null;
+
+  const isDM = channel.name.startsWith('__dm__');
+  const otherUser: User | undefined = isDM
+    ? users.find((u) => u.uid !== user?.uid && channel.members?.includes(u.uid))
+    : undefined;
+
+  if (isDM && otherUser) {
+    return (
+      <div className="flex flex-col justify-end px-5 pb-4 pt-8">
+        <div className="flex items-center gap-4 mb-4">
+          {otherUser.photoURL ? (
+            <img src={otherUser.photoURL} alt={otherUser.displayName} className="w-16 h-16 rounded-lg object-cover" />
+          ) : (
+            <div
+              className="w-16 h-16 rounded-lg flex items-center justify-center text-white text-2xl font-bold"
+              style={{ background: '#1164A3' }}
+            >
+              {otherUser.displayName[0].toUpperCase()}
+            </div>
+          )}
+          <div>
+            <h3 className="text-[22px] font-bold text-[#1D1C1D] leading-tight">{otherUser.displayName}</h3>
+            <p className="text-[14px] text-[#616061] mt-0.5">
+              {otherUser.email && <span>{otherUser.email} · </span>}
+              <span className={otherUser.online ? 'text-[#007A5A]' : 'text-[#616061]'}>
+                {otherUser.online ? 'アクティブ' : 'オフライン'}
+              </span>
+            </p>
+          </div>
+        </div>
+        <p className="text-[15px] text-[#616061] leading-relaxed">
+          これは <strong className="text-[#1D1C1D]">{otherUser.displayName}</strong> との会話の始まりです。
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col justify-end px-5 pb-4 pt-8">
+      <div
+        className="w-14 h-14 flex items-center justify-center rounded-lg mb-3 text-white font-bold text-2xl"
+        style={{ background: '#3F0E40' }}
+      >
+        #
+      </div>
+      <h3 className="text-[22px] font-bold text-[#1D1C1D] mb-1">#{channel.name} へようこそ</h3>
+      {channel.description && (
+        <p className="text-[15px] text-[#616061] mb-2">{channel.description}</p>
+      )}
+      <p className="text-[14px] text-[#616061]">
+        これは <strong className="text-[#1D1C1D]">#{channel.name}</strong> チャンネルの最初のメッセージです。ぜひ会話を始めましょう！
+      </p>
+    </div>
+  );
+}
+
 export default function MessageList() {
   const allMessages = useMessages();
   const searchQuery = useAppStore((s) => s.searchQuery);
+  const activeChannelId = useAppStore((s) => s.activeChannelId);
   const openThreadPanel = useAppStore((s) => s.openThreadPanel);
   const messages = searchQuery.trim()
     ? allMessages.filter((m) => m.text.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -51,7 +130,13 @@ export default function MessageList() {
   const isAtBottomRef = useRef(true);
   const [showJumpBtn, setShowJumpBtn] = useState(false);
 
-  const rows = useMemo(() => buildRows(messages), [messages]);
+  // チャンネル変更前の lastVisit をキャプチャ（変更後に mark されるため useRef で保持）
+  const lastVisitRef = useRef<number>(0);
+  useEffect(() => {
+    lastVisitRef.current = activeChannelId ? getLastVisit(activeChannelId) : 0;
+  }, [activeChannelId]);
+
+  const rows = useMemo(() => buildRows(messages, lastVisitRef.current), [messages]);
 
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -61,6 +146,7 @@ export default function MessageList() {
         const row = rows[index];
         if (!row) return 40;
         if (row.type === 'divider') return 36;
+        if (row.type === 'unread') return 32;
         return row.isCompact ? 28 : 64;
       },
       [rows]
@@ -104,7 +190,6 @@ export default function MessageList() {
   }, []);
 
   // Reset scroll when channel changes
-  const activeChannelId = useAppStore((s) => s.activeChannelId);
   useEffect(() => {
     if (parentRef.current) {
       parentRef.current.scrollTop = parentRef.current.scrollHeight;
@@ -126,19 +211,8 @@ export default function MessageList() {
       );
     }
     return (
-      <div className="flex-1 flex flex-col justify-end px-5 pb-4">
-        <div
-          className="w-12 h-12 flex items-center justify-center rounded mb-3 text-white font-bold text-2xl"
-          style={{ background: '#3F0E40' }}
-        >
-          #
-        </div>
-        <h3 className="text-[22px] font-bold text-[#1D1C1D] mb-1">
-          このチャンネルへようこそ
-        </h3>
-        <p className="text-[15px] text-[#616061]">
-          このチャンネルの最初のメッセージです。ぜひ会話を始めてみましょう！
-        </p>
+      <div className="flex-1 flex flex-col justify-end">
+        {activeChannelId && <EmptyChannelState channelId={activeChannelId} />}
       </div>
     );
   }
@@ -192,6 +266,21 @@ export default function MessageList() {
                     {row.date}
                   </span>
                   <hr className="flex-1" style={{ borderColor: '#DDDDDD' }} />
+                </div>
+              ) : row.type === 'unread' ? (
+                <div className="flex items-center gap-3 px-5 py-2">
+                  <hr className="flex-1" style={{ borderColor: '#E01E5A' }} />
+                  <span
+                    className="text-[11px] font-bold px-2.5 py-0.5 text-white"
+                    style={{
+                      background: '#E01E5A',
+                      borderRadius: '24px',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    新着メッセージ
+                  </span>
+                  <hr className="flex-1" style={{ borderColor: '#E01E5A' }} />
                 </div>
               ) : (
                 <MessageItem

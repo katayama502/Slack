@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { useAppStore } from '../../store/useAppStore';
+import { formatFullDateTime } from '../../utils/formatDate';
 import type { User } from '../../types';
 
 // ─── Members panel (portal) ───────────────────────────────────────────────────
@@ -153,14 +154,29 @@ export default function ChannelHeader({ onMenuClick }: { onMenuClick?: () => voi
           )}
           <div className="flex items-center gap-1.5 min-w-0">
             {isDM ? (
-              dmOtherUser?.photoURL
-                ? <img src={dmOtherUser.photoURL} alt="" className="w-6 h-6 rounded object-cover flex-shrink-0" />
-                : <div className="w-6 h-6 rounded flex items-center justify-center text-white text-xs font-bold flex-shrink-0" style={{ background: '#1164A3' }}>{displayName[0].toUpperCase()}</div>
+              <div className="relative flex-shrink-0">
+                {dmOtherUser?.photoURL
+                  ? <img src={dmOtherUser.photoURL} alt="" className="w-7 h-7 rounded object-cover" />
+                  : <div className="w-7 h-7 rounded flex items-center justify-center text-white text-xs font-bold" style={{ background: '#1164A3' }}>{displayName[0].toUpperCase()}</div>
+                }
+                <span
+                  className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${dmOtherUser?.online ? 'bg-[#007A5A]' : 'bg-[#AAAAAA]'}`}
+                />
+              </div>
             ) : (
               <span className="text-gray-700 font-bold text-[18px] leading-none flex-shrink-0">#</span>
             )}
-            <h2 className="text-[15px] font-bold text-gray-900 truncate">{displayName}</h2>
-            {isDM && dmOtherUser?.online && <span className="w-2 h-2 rounded-full bg-[#007A5A] flex-shrink-0" />}
+            <div className="min-w-0">
+              <h2 className="text-[15px] font-bold text-gray-900 truncate leading-tight">{displayName}</h2>
+              {isDM && dmOtherUser && !dmOtherUser.online && dmOtherUser.lastSeen && (
+                <p className="text-[11px] text-gray-400 leading-tight" title={formatFullDateTime(dmOtherUser.lastSeen)}>
+                  最終確認: {formatFullDateTime(dmOtherUser.lastSeen)}
+                </p>
+              )}
+              {isDM && dmOtherUser?.online && (
+                <p className="text-[11px] text-[#007A5A] leading-tight">アクティブ</p>
+              )}
+            </div>
           </div>
           {!isDM && channel.description && (
             <div className="flex items-center gap-2 min-w-0 hidden sm:flex">

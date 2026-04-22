@@ -1,14 +1,18 @@
 import { useState, useRef, useEffect, KeyboardEvent } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import { useThreads } from '../../hooks/useThreads';
-import { sendThreadReply } from '../../services';
+import { sendThreadReply, toggleReaction } from '../../services';
 import { formatMessageTime, formatFullDateTime } from '../../utils/formatDate';
 import { renderMarkdown } from '../../utils/markdown';
 import { toast } from '../ui/Toast';
 
+const EMOJI_LIST = ['👍', '❤️', '😂', '🎉', '🔥', '👀', '✅', '🙏', '💪', '😊'];
+const THREAD_EMOJI = ['😀','😂','🥰','😎','🤔','😅','😭','🎉','👍','👏','🔥','❤️','✅','🚀','💡','🙏','😊','👀','💪','🤝'];
+
 export default function ThreadPanel() {
   const { user } = useAppStore((s) => s.auth);
   const activeChannelId = useAppStore((s) => s.activeChannelId);
+  const channels = useAppStore((s) => s.channels);
   const threadPanelMessageId = useAppStore((s) => s.threadPanelMessageId);
   const closeThreadPanel = useAppStore((s) => s.closeThreadPanel);
   const messages = useAppStore((s) =>
@@ -18,9 +22,14 @@ export default function ThreadPanel() {
   const threads = useThreads();
   const [replyText, setReplyText] = useState('');
   const [sending, setSending] = useState(false);
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const [showReactionFor, setShowReactionFor] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const parentMessage = messages.find((m) => m.id === threadPanelMessageId);
+  const channel = channels.find((c) => c.id === activeChannelId);
+  const isDM = channel?.name.startsWith('__dm__');
+  const channelLabel = isDM ? 'DM' : channel ? `#${channel.name}` : '';
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -49,6 +58,20 @@ export default function ThreadPanel() {
     }
   };
 
+  const handleReaction = async (messageId: string, emoji: string, isParent = false) => {
+    if (!user || !activeChannelId) return;
+    try {
+      const targetMsg = isParent
+        ? messages.find((m) => m.id === messageId)
+        : threads.find((t) => t.id === messageId);
+      const currentReactions = (targetMsg as any)?.reactions ?? {};
+      await toggleReaction(activeChannelId, isParent ? messageId : threadPanelMessageId!, emoji, user.uid, currentReactions);
+    } catch (err) {
+      console.error('Reaction error:', err);
+    }
+    setShowReactionFor(null);
+  };
+
   const hasText = replyText.trim().length > 0;
 
   return (
@@ -58,7 +81,12 @@ export default function ThreadPanel() {
         className="flex items-center justify-between px-4 flex-shrink-0"
         style={{ minHeight: '49px', borderBottom: '1px solid #E8E8E8' }}
       >
-        <h3 className="font-bold text-[15px]" style={{ color: '#1D1C1D' }}>スレッド</h3>
+        <div className="flex items-center gap-2">
+          <h3 className="font-bold text-[15px]" style={{ color: '#1D1C1D' }}>スレッド</h3>
+          {channelLabel && (
+            <span className="text-[12px] text-[#616061]">{channelLabel}</span>
+          )}
+        </div>
         <button
           onClick={closeThreadPanel}
           title="閉じる"
@@ -77,7 +105,11 @@ export default function ThreadPanel() {
       <div className="flex-1 overflow-y-auto">
         {/* Parent message */}
         {parentMessage && (
-          <div className="px-4 py-4" style={{ borderBottom: '1px solid #E8E8E8' }}>
+          <div
+            className="px-4 py-4 group relative"
+            style={{ borderBottom: '1px solid #E8E8E8' }}
+            onMouseLeave={() => setShowReactionFor(null)}
+          >
             <div className="flex gap-3">
               {parentMessage.photoURL ? (
                 <img
@@ -110,6 +142,29 @@ export default function ThreadPanel() {
                 <div className="text-[14px] leading-relaxed" style={{ color: '#1D1C1D' }}>
                   {renderMarkdown(parentMessage.text)}
                 </div>
+                {/* Reactions on parent */}
+                {Object.keys(parentMessage.reactions ?? {}).length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {Object.entries(parentMessage.reactions ?? {}).map(([emoji, uids]) =>
+                      uids.length > 0 ? (
+                        <button
+                          key={emoji}
+                          onClick={() => handleReaction(parentMessage.id, emoji, true)}
+                          className="flex items-center gap-0.5 text-[12px] px-1.5 py-0.5 transition-colors"
+                          style={{
+                            borderRadius: '24px',
+                            border: user && uids.includes(user.uid) ? '1px solid #1264A3' : '1px solid #DDDDDD',
+                            background: user && uids.includes(user.uid) ? '#E8F5FA' : '#F8F8F8',
+                            color: user && uids.includes(user.uid) ? '#1264A3' : '#616061',
+                          }}
+                        >
+                          <span>{emoji}</span>
+                          <span className="font-medium ml-0.5">{uids.length}</span>
+                        </button>
+                      ) : null
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -130,9 +185,9 @@ export default function ThreadPanel() {
           {threads.map((thread) => (
             <div
               key={thread.id}
-              className="flex gap-3 px-4 py-2 transition-colors group"
+              className="relative flex gap-3 px-4 py-2 transition-colors group"
               onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = '#F8F8F8'; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; setShowReactionFor(null); }}
             >
               {thread.photoURL ? (
                 <img
@@ -166,6 +221,40 @@ export default function ThreadPanel() {
                   {renderMarkdown(thread.text)}
                 </div>
               </div>
+
+              {/* Thread reply reaction button */}
+              <div
+                className="absolute right-3 top-1 opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <div className="relative">
+                  <button
+                    onClick={() => setShowReactionFor(showReactionFor === thread.id ? null : thread.id)}
+                    className="w-7 h-7 flex items-center justify-center rounded text-[#616061] hover:text-[#1D1C1D] transition-colors"
+                    style={{ background: '#FFFFFF', border: '1px solid #DDDDDD', boxShadow: '0 1px 4px rgba(0,0,0,0.1)' }}
+                    title="リアクション"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.182 15.182a4.5 4.5 0 01-6.364 0M21 12a9 9 0 11-18 0 9 9 0 0118 0zM9.75 9.75c0 .414-.168.75-.375.75S9 10.164 9 9.75 9.168 9 9.375 9s.375.336.375.75zm5.625 0c0 .414-.168.75-.375.75s-.375-.336-.375-.75.168-.75.375-.75.375.336.375.75z" />
+                    </svg>
+                  </button>
+                  {showReactionFor === thread.id && (
+                    <div
+                      className="absolute right-0 top-8 flex gap-0.5 p-1.5 z-20"
+                      style={{ background: '#FFFFFF', border: '1px solid #DDDDDD', borderRadius: '6px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}
+                    >
+                      {EMOJI_LIST.map((emoji) => (
+                        <button
+                          key={emoji}
+                          onClick={() => handleReaction(thread.id, emoji)}
+                          className="w-8 h-8 flex items-center justify-center rounded hover:bg-[#F8F8F8] text-[18px]"
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           ))}
         </div>
@@ -187,7 +276,7 @@ export default function ThreadPanel() {
             value={replyText}
             onChange={(e) => setReplyText(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="返信を入力..."
+            placeholder={`${channelLabel ? channelLabel + ' の' : ''}スレッドに返信...`}
             aria-label="スレッドへの返信を入力"
             rows={2}
             disabled={sending}
@@ -199,7 +288,39 @@ export default function ThreadPanel() {
               el.style.height = Math.min(el.scrollHeight, 120) + 'px';
             }}
           />
-          <div className="flex items-center justify-end px-2 pb-2">
+          <div className="flex items-center justify-between px-2 pb-2">
+            <div className="flex items-center gap-0.5 relative">
+              {/* Emoji picker */}
+              <button
+                title="絵文字"
+                onClick={() => setEmojiPickerOpen((p) => !p)}
+                className="w-7 h-7 flex items-center justify-center rounded text-[#616061] hover:text-[#1D1C1D] hover:bg-[#F0F0F0] transition-colors"
+              >
+                <span style={{ fontSize: '16px', lineHeight: 1 }}>😊</span>
+              </button>
+              {emojiPickerOpen && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setEmojiPickerOpen(false)} />
+                  <div
+                    className="absolute bottom-9 left-0 z-40 p-2"
+                    style={{ background: '#FFFFFF', border: '1px solid #DDDDDD', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', width: '220px' }}
+                  >
+                    <p className="text-[11px] font-bold text-[#616061] uppercase tracking-wide px-1 mb-1.5">絵文字</p>
+                    <div className="grid grid-cols-10 gap-0.5">
+                      {THREAD_EMOJI.map((emoji) => (
+                        <button
+                          key={emoji}
+                          onClick={() => { setReplyText((t) => t + emoji); setEmojiPickerOpen(false); }}
+                          className="w-7 h-7 flex items-center justify-center rounded hover:bg-[#F8F8F8] text-[16px]"
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
             <button
               onClick={handleSend}
               disabled={!hasText || sending}

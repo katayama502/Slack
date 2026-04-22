@@ -16,6 +16,7 @@ import {
   arrayUnion,
   arrayRemove,
   increment,
+  limit,
 } from 'firebase/firestore';
 import {
   signInWithPopup,
@@ -258,6 +259,22 @@ export async function createChannel(
 // ─────────────────────────────────────────────────────────────────────────────
 // Messages
 // ─────────────────────────────────────────────────────────────────────────────
+
+/** チャンネルの最新メッセージ1件を購読（未読バッジ用） */
+export function subscribeToLatestMessage(
+  channelId: string,
+  callback: (msg: Message | null) => void
+): () => void {
+  const q = query(
+    collection(db, 'channels', channelId, 'messages'),
+    orderBy('createdAt', 'desc'),
+    limit(1)
+  );
+  return onSnapshot(q, (snap) => {
+    if (snap.empty) { callback(null); return; }
+    callback({ id: snap.docs[0].id, ...snap.docs[0].data() } as Message);
+  });
+}
 
 export function subscribeToMessages(
   channelId: string,

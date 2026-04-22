@@ -770,9 +770,9 @@ export default function MessageInput() {
           style={{ borderTop: '1px solid #EEEEEE' }}>
           <div className="flex items-center gap-0.5">
             {/* File attachment */}
-            <ToolBtn title="ファイルを添付" onClick={() => fileInputRef.current?.click()}>
+            <ToolBtn title="ファイルを添付（ファイル名をテキストに追加）" onClick={() => fileInputRef.current?.click()}>
               <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
               </svg>
             </ToolBtn>
 
