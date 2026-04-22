@@ -1,4 +1,4 @@
-import { useState, useEffect, memo } from 'react';
+import { useState, useEffect, useRef, memo } from 'react';
 import ReactDOM from 'react-dom';
 import { useAppStore } from '../../store/useAppStore';
 import { deleteMessage, updateMessage, toggleReaction, saveMessage, unsaveMessage } from '../../services';
@@ -7,6 +7,36 @@ import { renderMarkdown } from '../../utils/markdown';
 import { toast } from '../ui/Toast';
 import EmojiPicker from '../ui/EmojiPicker';
 import type { Message, User } from '../../types';
+
+// ─── Portal emoji picker ───────────────────────────────────────────────────────
+// overflow スクロールコンテナにクリップされないよう body にポータルとして描画する
+function EmojiPickerPortal({
+  anchorRect,
+  onSelect,
+  onClose,
+}: {
+  anchorRect: DOMRect;
+  onSelect: (emoji: string) => void;
+  onClose: () => void;
+}) {
+  // ビューポート右端に合わせて配置（はみ出し防止）
+  const pickerW = 320;
+  let left = anchorRect.left;
+  if (left + pickerW > window.innerWidth - 8) {
+    left = window.innerWidth - pickerW - 8;
+  }
+  const top = anchorRect.bottom + 4;
+
+  return ReactDOM.createPortal(
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div className="fixed z-50" style={{ top, left }}>
+        <EmojiPicker onSelect={onSelect} onClose={onClose} />
+      </div>
+    </>,
+    document.body
+  );
+}
 
 interface Props {
   message: Message;
@@ -119,11 +149,13 @@ function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' 
   const setEditingMessageId = useAppStore((s) => s.setEditingMessageId);
 
   const [showActions, setShowActions] = useState(false);
-  const [showReactionPicker, setShowReactionPicker] = useState(false);
+  const [reactionAnchor, setReactionAnchor] = useState<DOMRect | null>(null);
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(message.text);
   const [profileUser, setProfileUser] = useState<User | null>(null);
   const [profileAnchor, setProfileAnchor] = useState<DOMRect | null>(null);
+  const reactionBtnRef = useRef<HTMLButtonElement>(null);
+  const addReactionBtnRef = useRef<HTMLButtonElement>(null);
 
   const isSaved = savedMessages.some((s) => s.messageId === message.id);
 
@@ -174,7 +206,7 @@ function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' 
       console.error('Reaction error:', err);
       toast.error('リアクションの更新に失敗しました');
     }
-    setShowReactionPicker(false);
+    setReactionAnchor(null);
   };
 
   const handleCopy = async () => {
@@ -239,7 +271,7 @@ function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' 
         isCompact ? 'px-5 py-0.5' : 'px-5 pt-2 pb-1'
       }`}
       onMouseEnter={() => setShowActions(true)}
-      onMouseLeave={() => { setShowActions(false); setShowReactionPicker(false); }}
+      onMouseLeave={() => { setShowActions(false); }}
     >
       {/* Mobile: always-visible ⋮ action trigger */}
       {!editing && (
@@ -362,34 +394,28 @@ function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' 
               ) : null
             )}
             {/* + Add reaction button */}
-            <div className="relative">
-              <button
-                onClick={() => setShowReactionPicker((p) => !p)}
-                title="リアクションを追加"
-                className="flex items-center justify-center text-[13px] px-2 py-0.5 transition-colors"
-                style={{
-                  borderRadius: '24px',
-                  border: '1px solid #DDDDDD',
-                  background: '#F8F8F8',
-                  color: '#616061',
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#BBBBBB'; e.currentTarget.style.background = '#F0F0F0'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#DDDDDD'; e.currentTarget.style.background = '#F8F8F8'; }}
-              >
-                <svg className="w-3.5 h-3.5 mr-0.5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                </svg>
-                <span>😊</span>
-              </button>
-              {showReactionPicker && (
-                <div className="absolute left-0 top-8 z-20">
-                  <EmojiPicker
-                    onSelect={(emoji) => { handleReaction(emoji); setShowReactionPicker(false); }}
-                    onClose={() => setShowReactionPicker(false)}
-                  />
-                </div>
-              )}
-            </div>
+            <button
+              ref={addReactionBtnRef}
+              onClick={() => {
+                const rect = addReactionBtnRef.current?.getBoundingClientRect();
+                if (rect) setReactionAnchor((a) => a ? null : rect);
+              }}
+              title="リアクションを追加"
+              className="flex items-center justify-center text-[13px] px-2 py-0.5 transition-colors"
+              style={{
+                borderRadius: '24px',
+                border: '1px solid #DDDDDD',
+                background: '#F8F8F8',
+                color: '#616061',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#BBBBBB'; e.currentTarget.style.background = '#F0F0F0'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#DDDDDD'; e.currentTarget.style.background = '#F8F8F8'; }}
+            >
+              <svg className="w-3.5 h-3.5 mr-0.5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              <span>😊</span>
+            </button>
           </div>
         )}
       </div>
@@ -401,21 +427,19 @@ function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' 
           style={{ background: '#FFFFFF', border: '1px solid #DDDDDD', borderRadius: '6px', boxShadow: '0 1px 8px rgba(0,0,0,0.15)' }}
         >
           {/* Reaction picker */}
-          <div className="relative">
-            <button onClick={() => setShowReactionPicker((p) => !p)} title="リアクション" className="w-8 h-8 flex items-center justify-center rounded hover:bg-[#F8F8F8] text-[#616061] hover:text-[#1D1C1D] transition-colors">
-              <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15.182 15.182a4.5 4.5 0 01-6.364 0M21 12a9 9 0 11-18 0 9 9 0 0118 0zM9.75 9.75c0 .414-.168.75-.375.75S9 10.164 9 9.75 9.168 9 9.375 9s.375.336.375.75zm-.375 0h.008v.015h-.008V9.75zm5.625 0c0 .414-.168.75-.375.75s-.375-.336-.375-.75.168-.75.375-.75.375.336.375.75zm-.375 0h.008v.015h-.008V9.75z" />
-              </svg>
-            </button>
-            {showReactionPicker && (
-              <div className="absolute right-0 top-9 z-20">
-                <EmojiPicker
-                  onSelect={(emoji) => handleReaction(emoji)}
-                  onClose={() => setShowReactionPicker(false)}
-                />
-              </div>
-            )}
-          </div>
+          <button
+            ref={reactionBtnRef}
+            onClick={() => {
+              const rect = reactionBtnRef.current?.getBoundingClientRect();
+              if (rect) setReactionAnchor((a) => a ? null : rect);
+            }}
+            title="リアクション"
+            className="w-8 h-8 flex items-center justify-center rounded hover:bg-[#F8F8F8] text-[#616061] hover:text-[#1D1C1D] transition-colors"
+          >
+            <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.182 15.182a4.5 4.5 0 01-6.364 0M21 12a9 9 0 11-18 0 9 9 0 0118 0zM9.75 9.75c0 .414-.168.75-.375.75S9 10.164 9 9.75 9.168 9 9.375 9s.375.336.375.75zm-.375 0h.008v.015h-.008V9.75zm5.625 0c0 .414-.168.75-.375.75s-.375-.336-.375-.75.168-.75.375-.75.375.336.375.75zm-.375 0h.008v.015h-.008V9.75z" />
+            </svg>
+          </button>
 
           {/* Thread */}
           <button onClick={() => onThreadClick(message.id)} title="スレッドで返信" className="w-8 h-8 flex items-center justify-center rounded hover:bg-[#F8F8F8] text-[#616061] hover:text-[#1D1C1D] transition-colors">
@@ -465,6 +489,14 @@ function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' 
           user={profileUser}
           anchor={profileAnchor}
           onClose={() => { setProfileUser(null); setProfileAnchor(null); }}
+        />
+      )}
+      {/* Emoji picker portal — スクロールコンテナ外に描画してクリップを回避 */}
+      {reactionAnchor && (
+        <EmojiPickerPortal
+          anchorRect={reactionAnchor}
+          onSelect={(emoji) => { handleReaction(emoji); setReactionAnchor(null); }}
+          onClose={() => setReactionAnchor(null)}
         />
       )}
     </div>

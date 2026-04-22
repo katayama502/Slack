@@ -117,6 +117,18 @@ export default function Sidebar() {
 
   const handleOpenDM = async (otherUser: User) => {
     if (!user) return;
+
+    // まずストアから既存のDMチャンネルを探す（subscribeToChannels が既に取得済みの場合）
+    const dmName = getDMChannelName(user.uid, otherUser.uid);
+    const storeChannels = useAppStore.getState().channels;
+    const existingInStore = storeChannels.find((c) => c.name === dmName);
+    if (existingInStore) {
+      markChannelRead(existingInStore.id);
+      setActiveChannel(existingInStore.id);
+      return;
+    }
+
+    // ストアにない場合のみ Firestore にクエリ
     setDmLoading(otherUser.uid);
     try {
       const channelId = await getOrCreateDMChannel(user.uid, otherUser.uid);
@@ -124,7 +136,7 @@ export default function Sidebar() {
       if (!existing) {
         addChannel({
           id: channelId,
-          name: getDMChannelName(user.uid, otherUser.uid),
+          name: dmName,
           description: '',
           createdBy: user.uid,
           createdAt: Timestamp.now(),

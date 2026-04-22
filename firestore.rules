@@ -63,6 +63,14 @@ service cloud.firestore {
       }
 
       // ─────────────────────────────────────────
+      // typing
+      // ─────────────────────────────────────────
+      match /typing/{uid} {
+        allow read: if isChannelMember(channelId);
+        allow write: if isAuthenticated() && request.auth.uid == uid;
+      }
+
+      // ─────────────────────────────────────────
       // messages
       // ─────────────────────────────────────────
       match /messages/{messageId} {
@@ -85,8 +93,17 @@ service cloud.firestore {
 
         match /threads/{threadId} {
           allow read, create: if isChannelMember(channelId);
-          allow update, delete: if isAuthenticated()
-            && resource.data.uid == request.auth.uid;
+          // 削除・テキスト編集: 自分の返信のみ
+          allow delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
+          // 更新: 自分の返信は何でも可 / 他人の返信は reactions フィールドのみ可
+          allow update: if isAuthenticated() && (
+            resource.data.uid == request.auth.uid
+            ||
+            (
+              isChannelMember(channelId) &&
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])
+            )
+          );
         }
       }
     }

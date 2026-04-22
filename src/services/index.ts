@@ -284,13 +284,19 @@ export function subscribeToMessages(
     collection(db, 'channels', channelId, 'messages'),
     orderBy('createdAt', 'asc')
   );
-  return onSnapshot(q, (snapshot) => {
-    const messages: Message[] = snapshot.docs.map((d) => ({
-      id: d.id,
-      ...(d.data() as Omit<Message, 'id'>),
-    }));
-    callback(messages);
-  });
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const messages: Message[] = snapshot.docs.map((d) => ({
+        id: d.id,
+        ...(d.data() as Omit<Message, 'id'>),
+      }));
+      callback(messages);
+    },
+    (err) => {
+      console.error(`[subscribeToMessages] channelId=${channelId}`, err);
+    }
+  );
 }
 
 export async function sendMessage(

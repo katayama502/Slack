@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, KeyboardEvent } from 'react';
+import ReactDOM from 'react-dom';
 import { useAppStore } from '../../store/useAppStore';
 import { useThreads } from '../../hooks/useThreads';
 import {
@@ -13,6 +14,33 @@ import { renderMarkdown } from '../../utils/markdown';
 import { toast } from '../ui/Toast';
 import EmojiPicker from '../ui/EmojiPicker';
 import type { Thread } from '../../types';
+
+function EmojiPickerPortal({
+  anchorRect,
+  onSelect,
+  onClose,
+}: {
+  anchorRect: DOMRect;
+  onSelect: (emoji: string) => void;
+  onClose: () => void;
+}) {
+  const pickerW = 320;
+  let left = anchorRect.left;
+  if (left + pickerW > window.innerWidth - 8) {
+    left = window.innerWidth - pickerW - 8;
+  }
+  const top = anchorRect.bottom + 4;
+
+  return ReactDOM.createPortal(
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div className="fixed z-50" style={{ top, left }}>
+        <EmojiPicker onSelect={onSelect} onClose={onClose} />
+      </div>
+    </>,
+    document.body
+  );
+}
 
 export default function ThreadPanel() {
   const { user } = useAppStore((s) => s.auth);
@@ -29,10 +57,11 @@ export default function ThreadPanel() {
   const [replyText, setReplyText] = useState('');
   const [sending, setSending] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
-  const [showReactionFor, setShowReactionFor] = useState<string | null>(null);
+  const [reactionAnchor, setReactionAnchor] = useState<{ rect: DOMRect; targetId: string; isParent: boolean } | null>(null);
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
+  const inputEmojiRef = useRef<HTMLButtonElement>(null);
 
   const parentMessage = messages.find((m) => m.id === threadPanelMessageId);
   const channel = channels.find((c) => c.id === activeChannelId);
@@ -83,7 +112,7 @@ export default function ThreadPanel() {
     } catch (err) {
       console.error('Reaction error:', err);
     }
-    setShowReactionFor(null);
+    setReactionAnchor(null);
   };
 
   const handleEditStart = (thread: Thread) => {
@@ -149,7 +178,7 @@ export default function ThreadPanel() {
           <div
             className="px-4 py-4 group relative"
             style={{ borderBottom: '1px solid #E8E8E8' }}
-            onMouseLeave={() => setShowReactionFor(null)}
+            onMouseLeave={() => setReactionAnchor(null)}
           >
             <div className="flex gap-3">
               {parentMessage.photoURL ? (
@@ -232,7 +261,7 @@ export default function ThreadPanel() {
                 key={thread.id}
                 className="relative flex gap-3 px-4 py-2 transition-colors group"
                 onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = '#F8F8F8'; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; setShowReactionFor(null); }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; setReactionAnchor(null); }}
               >
                 {thread.photoURL ? (
                   <img
@@ -330,25 +359,20 @@ export default function ThreadPanel() {
                     style={{ background: '#FFFFFF', border: '1px solid #DDDDDD', borderRadius: '6px', padding: '2px', boxShadow: '0 1px 4px rgba(0,0,0,0.1)' }}
                   >
                     {/* Reaction */}
-                    <div className="relative">
-                      <button
-                        onClick={() => setShowReactionFor(showReactionFor === thread.id ? null : thread.id)}
-                        className="w-7 h-7 flex items-center justify-center rounded text-[#616061] hover:text-[#1D1C1D] hover:bg-[#F8F8F8] transition-colors"
-                        title="リアクション"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M15.182 15.182a4.5 4.5 0 01-6.364 0M21 12a9 9 0 11-18 0 9 9 0 0118 0zM9.75 9.75c0 .414-.168.75-.375.75S9 10.164 9 9.75 9.168 9 9.375 9s.375.336.375.75zm5.625 0c0 .414-.168.75-.375.75s-.375-.336-.375-.75.168-.75.375-.75.375.336.375.75z" />
-                        </svg>
-                      </button>
-                      {showReactionFor === thread.id && (
-                        <div className="absolute right-0 top-8 z-20">
-                          <EmojiPicker
-                            onSelect={(emoji) => handleReaction(thread.id, emoji)}
-                            onClose={() => setShowReactionFor(null)}
-                          />
-                        </div>
-                      )}
-                    </div>
+                    <button
+                      onClick={(e) => {
+                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        setReactionAnchor((a) =>
+                          a?.targetId === thread.id ? null : { rect, targetId: thread.id, isParent: false }
+                        );
+                      }}
+                      className="w-7 h-7 flex items-center justify-center rounded text-[#616061] hover:text-[#1D1C1D] hover:bg-[#F8F8F8] transition-colors"
+                      title="リアクション"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.182 15.182a4.5 4.5 0 01-6.364 0M21 12a9 9 0 11-18 0 9 9 0 0118 0zM9.75 9.75c0 .414-.168.75-.375.75S9 10.164 9 9.75 9.168 9 9.375 9s.375.336.375.75zm5.625 0c0 .414-.168.75-.375.75s-.375-.336-.375-.75.168-.75.375-.75.375.336.375.75z" />
+                      </svg>
+                    </button>
 
                     {/* Edit */}
                     {isOwner && (
@@ -412,25 +436,25 @@ export default function ThreadPanel() {
             }}
           />
           <div className="flex items-center justify-between px-2 pb-2">
-            <div className="flex items-center gap-0.5 relative">
+            <div className="flex items-center gap-0.5">
               {/* Emoji picker */}
               <button
+                ref={inputEmojiRef}
                 title="絵文字"
-                onClick={() => setEmojiPickerOpen((p) => !p)}
+                onClick={() => {
+                  const rect = inputEmojiRef.current?.getBoundingClientRect();
+                  if (rect) setEmojiPickerOpen((p) => !p);
+                }}
                 className="w-7 h-7 flex items-center justify-center rounded text-[#616061] hover:text-[#1D1C1D] hover:bg-[#F0F0F0] transition-colors"
               >
                 <span style={{ fontSize: '16px', lineHeight: 1 }}>😊</span>
               </button>
-              {emojiPickerOpen && (
-                <>
-                  <div className="fixed inset-0 z-30" onClick={() => setEmojiPickerOpen(false)} />
-                  <div className="absolute bottom-9 left-0 z-40">
-                    <EmojiPicker
-                      onSelect={(emoji) => { setReplyText((t) => t + emoji); setEmojiPickerOpen(false); }}
-                      onClose={() => setEmojiPickerOpen(false)}
-                    />
-                  </div>
-                </>
+              {emojiPickerOpen && inputEmojiRef.current && (
+                <EmojiPickerPortal
+                  anchorRect={inputEmojiRef.current.getBoundingClientRect()}
+                  onSelect={(emoji) => { setReplyText((t) => t + emoji); setEmojiPickerOpen(false); }}
+                  onClose={() => setEmojiPickerOpen(false)}
+                />
               )}
             </div>
             <button
@@ -455,6 +479,15 @@ export default function ThreadPanel() {
           <kbd className="font-mono px-1 rounded" style={{ background: '#F8F8F8', border: '1px solid #DDDDDD' }}>Shift+Enter</kbd> で改行
         </p>
       </div>
+      {reactionAnchor && (
+        <EmojiPickerPortal
+          anchorRect={reactionAnchor.rect}
+          onSelect={(emoji) => {
+            handleReaction(reactionAnchor.targetId, emoji, reactionAnchor.isParent);
+          }}
+          onClose={() => setReactionAnchor(null)}
+        />
+      )}
     </div>
   );
 }
