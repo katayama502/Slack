@@ -1,10 +1,11 @@
 import { useState, useEffect, memo } from 'react';
 import ReactDOM from 'react-dom';
 import { useAppStore } from '../../store/useAppStore';
-import { deleteMessage, updateMessage, toggleReaction } from '../../services';
+import { deleteMessage, updateMessage, toggleReaction, saveMessage, unsaveMessage } from '../../services';
 import { formatMessageTime, formatFullDateTime } from '../../utils/formatDate';
 import { renderMarkdown } from '../../utils/markdown';
 import { toast } from '../ui/Toast';
+import EmojiPicker from '../ui/EmojiPicker';
 import type { Message, User } from '../../types';
 
 interface Props {
@@ -33,8 +34,6 @@ function HighlightText({ text, query }: { text: string; query: string }) {
     </>
   );
 }
-
-const COMMON_REACTIONS = ['👍', '❤️', '😂', '🎉', '🔥', '👀'];
 
 // ─── User profile popup ───────────────────────────────────────────────────────
 function UserProfilePopup({
@@ -94,6 +93,9 @@ function UserProfilePopup({
             </span>
           </div>
           <p className="text-[16px] font-bold text-[#1D1C1D] leading-tight">{user.displayName}</p>
+          {user.status && (
+            <p className="text-[13px] text-[#1D1C1D] mt-0.5">{user.status.emoji} {user.status.text}</p>
+          )}
           {user.email && (
             <p className="text-[12px] text-[#616061] mt-0.5 truncate">{user.email}</p>
           )}
@@ -108,6 +110,9 @@ function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' 
   const { user } = useAppStore((s) => s.auth);
   const users = useAppStore((s) => s.users);
   const activeChannelId = useAppStore((s) => s.activeChannelId);
+  const savedMessages = useAppStore((s) => s.savedMessages);
+  const addSavedMessage = useAppStore((s) => s.addSavedMessage);
+  const removeSavedMessage = useAppStore((s) => s.removeSavedMessage);
   const removeMessage = useAppStore((s) => s.removeMessage);
   const updateMsg = useAppStore((s) => s.updateMessage);
   const editingMessageId = useAppStore((s) => s.editingMessageId);
@@ -119,6 +124,8 @@ function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' 
   const [editText, setEditText] = useState(message.text);
   const [profileUser, setProfileUser] = useState<User | null>(null);
   const [profileAnchor, setProfileAnchor] = useState<DOMRect | null>(null);
+
+  const isSaved = savedMessages.some((s) => s.messageId === message.id);
 
   // ↑キーで編集トリガー: editingMessageId が自分のIDに設定されたら編集モードに入る
   useEffect(() => {
@@ -176,6 +183,33 @@ function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' 
       toast.success('コピーしました');
     } catch {
       toast.error('コピーに失敗しました');
+    }
+  };
+
+  const handleSaveToggle = async () => {
+    if (!user || !activeChannelId) return;
+    try {
+      if (isSaved) {
+        await unsaveMessage(user.uid, message.id);
+        removeSavedMessage(message.id);
+        toast.success('保存を解除しました');
+      } else {
+        await saveMessage(user.uid, message, activeChannelId);
+        addSavedMessage({
+          id: message.id,
+          messageId: message.id,
+          channelId: activeChannelId,
+          text: message.text.slice(0, 500),
+          fromUid: message.uid,
+          fromDisplayName: message.displayName,
+          fromPhotoURL: message.photoURL,
+          savedAt: { toMillis: () => Date.now() } as any,
+          originalCreatedAt: message.createdAt,
+        });
+        toast.success('メッセージを保存しました');
+      }
+    } catch {
+      toast.error('操作に失敗しました');
     }
   };
 
@@ -348,10 +382,11 @@ function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' 
                 <span>😊</span>
               </button>
               {showReactionPicker && (
-                <div className="absolute left-0 top-8 flex gap-0.5 p-1.5 z-20" style={{ background: '#FFFFFF', border: '1px solid #DDDDDD', borderRadius: '6px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}>
-                  {COMMON_REACTIONS.map((emoji) => (
-                    <button key={emoji} onClick={() => handleReaction(emoji)} className="w-8 h-8 flex items-center justify-center rounded hover:bg-[#F8F8F8] text-[18px]">{emoji}</button>
-                  ))}
+                <div className="absolute left-0 top-8 z-20">
+                  <EmojiPicker
+                    onSelect={(emoji) => { handleReaction(emoji); setShowReactionPicker(false); }}
+                    onClose={() => setShowReactionPicker(false)}
+                  />
                 </div>
               )}
             </div>
@@ -373,10 +408,11 @@ function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' 
               </svg>
             </button>
             {showReactionPicker && (
-              <div className="absolute right-0 top-9 flex gap-0.5 p-1.5 z-20" style={{ background: '#FFFFFF', border: '1px solid #DDDDDD', borderRadius: '6px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}>
-                {COMMON_REACTIONS.map((emoji) => (
-                  <button key={emoji} onClick={() => handleReaction(emoji)} className="w-8 h-8 flex items-center justify-center rounded hover:bg-[#F8F8F8] text-[18px]">{emoji}</button>
-                ))}
+              <div className="absolute right-0 top-9 z-20">
+                <EmojiPicker
+                  onSelect={(emoji) => handleReaction(emoji)}
+                  onClose={() => setShowReactionPicker(false)}
+                />
               </div>
             )}
           </div>
@@ -385,6 +421,18 @@ function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' 
           <button onClick={() => onThreadClick(message.id)} title="スレッドで返信" className="w-8 h-8 flex items-center justify-center rounded hover:bg-[#F8F8F8] text-[#616061] hover:text-[#1D1C1D] transition-colors">
             <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242m9.345-8.334a2.126 2.126 0 00-.476-.095 48.64 48.64 0 00-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0011.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" />
+            </svg>
+          </button>
+
+          {/* Save/Bookmark */}
+          <button
+            onClick={handleSaveToggle}
+            title={isSaved ? '保存を解除' : 'メッセージを保存'}
+            className="w-8 h-8 flex items-center justify-center rounded hover:bg-[#F8F8F8] transition-colors"
+            style={{ color: isSaved ? '#E8A400' : '#616061' }}
+          >
+            <svg className="w-[18px] h-[18px]" fill={isSaved ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z" />
             </svg>
           </button>
 

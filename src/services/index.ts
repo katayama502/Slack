@@ -31,7 +31,7 @@ import {
   updateProfile,
 } from 'firebase/auth';
 import { db, auth } from './firebase';
-import type { Channel, Message, Thread, Notification, User, Pin } from '../types';
+import type { Channel, Message, Thread, Notification, User, Pin, SavedMessage, UserStatus } from '../types';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Auth
@@ -508,4 +508,153 @@ export async function updatePin(
   data: { name?: string; url?: string }
 ): Promise<void> {
   await updateDoc(doc(db, 'channels', channelId, 'pins', pinId), data);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Saved Messages  (users/{uid}/saved/{messageId})
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function subscribeSavedMessages(
+  uid: string,
+  callback: (messages: SavedMessage[]) => void
+): () => void {
+  const q = query(
+    collection(db, 'users', uid, 'saved'),
+    orderBy('savedAt', 'desc')
+  );
+  return onSnapshot(q, (snap) => {
+    const messages: SavedMessage[] = snap.docs.map((d) => ({
+      id: d.id,
+      ...(d.data() as Omit<SavedMessage, 'id'>),
+    }));
+    callback(messages);
+  });
+}
+
+export async function saveMessage(
+  uid: string,
+  message: Message,
+  channelId: string
+): Promise<void> {
+  await setDoc(doc(db, 'users', uid, 'saved', message.id), {
+    messageId: message.id,
+    channelId,
+    text: message.text.slice(0, 500),
+    fromUid: message.uid,
+    fromDisplayName: message.displayName,
+    fromPhotoURL: message.photoURL,
+    savedAt: serverTimestamp(),
+    originalCreatedAt: message.createdAt,
+  });
+}
+
+export async function unsaveMessage(uid: string, messageId: string): Promise<void> {
+  await deleteDoc(doc(db, 'users', uid, 'saved', messageId));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Typing Indicators  (channels/{channelId}/typing/{uid})
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function setTyping(
+  channelId: string,
+  uid: string,
+  displayName: string,
+  isTyping: boolean
+): Promise<void> {
+  const ref = doc(db, 'channels', channelId, 'typing', uid);
+  if (isTyping) {
+    await setDoc(ref, { uid, displayName, timestamp: serverTimestamp() });
+  } else {
+    await deleteDoc(ref).catch(() => {});
+  }
+}
+
+export function subscribeToTyping(
+  channelId: string,
+  callback: (uids: { uid: string; displayName: string }[]) => void
+): () => void {
+  return onSnapshot(collection(db, 'channels', channelId, 'typing'), (snap) => {
+    const now = Date.now();
+    const typers = snap.docs
+      .map((d) => d.data() as { uid: string; displayName: string; timestamp: { toMillis: () => number } })
+      .filter((t) => {
+        // Ignore entries older than 5 seconds
+        const ms = t.timestamp?.toMillis?.() ?? 0;
+        return now - ms < 5000;
+      });
+    callback(typers);
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// User Status
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function setUserStatus(uid: string, status: UserStatus | null): Promise<void> {
+  await updateDoc(doc(db, 'users', uid), { status: status ?? null });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Channel Management
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function leaveChannel(channelId: string, uid: string): Promise<void> {
+  await updateDoc(doc(db, 'channels', channelId), {
+    members: arrayRemove(uid),
+  });
+}
+
+export async function updateChannelDescription(
+  channelId: string,
+  description: string
+): Promise<void> {
+  await updateDoc(doc(db, 'channels', channelId), { description });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Thread Edits & Deletes
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function updateThreadReply(
+  channelId: string,
+  messageId: string,
+  threadId: string,
+  text: string
+): Promise<void> {
+  await updateDoc(
+    doc(db, 'channels', channelId, 'messages', messageId, 'threads', threadId),
+    { text: text.slice(0, 4000), editedAt: serverTimestamp() }
+  );
+}
+
+export async function deleteThreadReply(
+  channelId: string,
+  messageId: string,
+  threadId: string
+): Promise<void> {
+  await deleteDoc(
+    doc(db, 'channels', channelId, 'messages', messageId, 'threads', threadId)
+  );
+  const msgRef = doc(db, 'channels', channelId, 'messages', messageId);
+  await updateDoc(msgRef, { threadCount: increment(-1) });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Thread Reactions
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function toggleThreadReaction(
+  channelId: string,
+  messageId: string,
+  threadId: string,
+  emoji: string,
+  uid: string,
+  currentReactions: Record<string, string[]>
+): Promise<void> {
+  const ref = doc(db, 'channels', channelId, 'messages', messageId, 'threads', threadId);
+  const hasReacted = (currentReactions[emoji] ?? []).includes(uid);
+  await updateDoc(ref, {
+    [`reactions.${emoji}`]: hasReacted ? arrayRemove(uid) : arrayUnion(uid),
+  });
 }

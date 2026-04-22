@@ -3,6 +3,11 @@ import { Timestamp } from 'firebase/firestore';
 // ─────────────────────────────────────────────────────────────────────────────
 // User
 // ─────────────────────────────────────────────────────────────────────────────
+export interface UserStatus {
+  emoji: string;
+  text: string;
+}
+
 export interface User {
   uid: string;
   displayName: string;
@@ -10,6 +15,7 @@ export interface User {
   email: string;
   online: boolean;
   lastSeen: Timestamp | null;
+  status?: UserStatus;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -22,6 +28,7 @@ export interface Channel {
   createdBy: string;       // uid
   createdAt: Timestamp;
   members: string[];       // uid[]
+  isDM?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -52,6 +59,8 @@ export interface Thread {
   displayName: string;
   photoURL: string | null;
   createdAt: Timestamp;
+  editedAt?: Timestamp;
+  reactions?: Record<string, string[]>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -78,6 +87,30 @@ export interface Notification {
   text: string;
   read: boolean;
   createdAt: Timestamp;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SavedMessage  (users/{uid}/saved/{messageId})
+// ─────────────────────────────────────────────────────────────────────────────
+export interface SavedMessage {
+  id: string;          // same as messageId
+  messageId: string;
+  channelId: string;
+  text: string;
+  fromUid: string;
+  fromDisplayName: string;
+  fromPhotoURL: string | null;
+  savedAt: Timestamp;
+  originalCreatedAt: Timestamp;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TypingUser  (channels/{channelId}/typing/{uid})
+// ─────────────────────────────────────────────────────────────────────────────
+export interface TypingUser {
+  uid: string;
+  displayName: string;
+  timestamp: Timestamp;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -128,6 +161,12 @@ export interface AppStore {
   markNotificationRead: (notifId: string) => void;
   markAllNotificationsRead: () => void;
 
+  // ── Saved Messages ────────────────────────────────────────────────────────
+  savedMessages: SavedMessage[];
+  setSavedMessages: (messages: SavedMessage[]) => void;
+  addSavedMessage: (message: SavedMessage) => void;
+  removeSavedMessage: (messageId: string) => void;
+
   // ── Users (centralized) ───────────────────────────────────────────────────
   users: User[];
   setUsers: (users: User[]) => void;
@@ -137,11 +176,13 @@ export interface AppStore {
   threadPanelMessageId: string | null;
   searchQuery: string;
   notificationsPanelOpen: boolean;
+  savedItemsPanelOpen: boolean;
   editingMessageId: string | null;
   setSidebarOpen: (open: boolean) => void;
   openThreadPanel: (messageId: string) => void;
   closeThreadPanel: () => void;
   setSearchQuery: (q: string) => void;
   setNotificationsPanelOpen: (open: boolean) => void;
+  setSavedItemsPanelOpen: (open: boolean) => void;
   setEditingMessageId: (id: string | null) => void;
 }

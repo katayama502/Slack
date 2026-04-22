@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect, useCallback, KeyboardEvent } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import { sendMessage } from '../../services';
+import { useSendTyping } from '../../hooks/useTyping';
 import { toast } from '../ui/Toast';
+import EmojiPickerComponent from '../ui/EmojiPicker';
 import type { User } from '../../types';
 
 // ─── HTML → Markdown conversion ─────────────────────────────────────────────
@@ -130,8 +132,6 @@ function ToolBtn({
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const EMOJI_LIST = ['😀','😂','🥰','😎','🤔','😅','😭','🎉','👍','👏','🔥','❤️','✅','🚀','💡','🙏','😊','👀','💪','🤝'];
-
 const CODE_STYLE = "font-family:'SFMono-Regular',Consolas,monospace;font-size:12.5px;background:rgba(29,28,29,0.06);border:1px solid rgba(29,28,29,0.13);border-radius:3px;padding:2px 5px;color:#E01E5A";
 const BLOCKQUOTE_STYLE = "border-left:3px solid #DDDDDD;margin:4px 0;padding:2px 10px;color:#616061;display:block";
 
@@ -170,6 +170,7 @@ export default function MessageInput() {
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
 
   const editableRef = useRef<HTMLDivElement>(null);
+  const { startTyping, stopTyping } = useSendTyping(activeChannelId);
 
   const channel = channels.find((c) => c.id === activeChannelId);
   const isDM = channel?.name.startsWith('__dm__') ?? false;
@@ -395,6 +396,13 @@ export default function MessageInput() {
     setIsEmpty(len === 0 && attachedFiles.length === 0);
     setCharCount(raw.length);
 
+    // タイピング通知
+    if (len > 0) {
+      startTyping();
+    } else {
+      stopTyping();
+    }
+
     const textBefore = getTextBeforeCaret(el);
     const atMatch = textBefore.match(/@(\w*)$/);
     if (atMatch) {
@@ -506,6 +514,7 @@ export default function MessageInput() {
     const mentions = parseMentionsFromHTML(html);
     setSending(true);
     lastSentAtRef.current = now;
+    stopTyping(); // タイピング停止
     el.innerHTML = '';
     setIsEmpty(true);
     setCharCount(0);
@@ -574,16 +583,15 @@ export default function MessageInput() {
 
         {/* Emoji picker */}
         {emojiPickerOpen && (
-          <div className="absolute bottom-full left-0 mb-1 z-20 p-2"
-            style={{ background: '#FFFFFF', border: '1px solid #DDDDDD', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', width: '260px' }}>
-            <p className="text-[11px] font-bold text-[#616061] uppercase tracking-wide px-1 mb-1.5">絵文字</p>
-            <div className="grid grid-cols-10 gap-0.5">
-              {EMOJI_LIST.map((emoji) => (
-                <button key={emoji} onMouseDown={(e) => { e.preventDefault(); insertEmoji(emoji); }}
-                  className="w-7 h-7 flex items-center justify-center rounded hover:bg-[#F8F8F8] text-[18px]">{emoji}</button>
-              ))}
+          <>
+            <div className="fixed inset-0 z-20" onClick={() => setEmojiPickerOpen(false)} />
+            <div className="absolute bottom-full left-0 mb-1 z-30">
+              <EmojiPickerComponent
+                onSelect={(emoji) => { insertEmoji(emoji); }}
+                onClose={() => setEmojiPickerOpen(false)}
+              />
             </div>
-          </div>
+          </>
         )}
 
         {/* Link popup */}

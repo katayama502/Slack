@@ -6,21 +6,24 @@ import ChannelHeader from '../channel/ChannelHeader';
 import PinBar from '../channel/PinBar';
 import MessageList from '../message/MessageList';
 import MessageInput from '../message/MessageInput';
+import TypingIndicator from '../message/TypingIndicator';
 import ThreadPanel from '../thread/ThreadPanel';
 import NotificationsPanel from '../notifications/NotificationsPanel';
+import SavedItemsPanel from '../saved/SavedItemsPanel';
+import QuickSwitcher from '../ui/QuickSwitcher';
 import { ToastContainer } from '../ui/Toast';
 
 // ─── Keyboard shortcut help modal ────────────────────────────────────────────
 const SHORTCUTS = [
-  { keys: ['Ctrl', 'B'], label: '太字' },
-  { keys: ['Ctrl', 'I'], label: '斜体' },
-  { keys: ['Ctrl', 'U'], label: '下線' },
-  { keys: ['Ctrl', 'K'], label: 'リンク挿入' },
+  { keys: ['Ctrl', 'K'], label: 'クイック切り替え（チャンネル・DM）' },
+  { keys: ['Ctrl', 'F'], label: 'チャンネル内検索' },
+  { keys: ['Ctrl', '/'], label: 'ショートカット一覧' },
+  { keys: ['Esc'], label: 'パネル・編集を閉じる' },
   { keys: ['Enter'], label: 'メッセージ送信' },
   { keys: ['Shift', 'Enter'], label: '改行' },
   { keys: ['↑'], label: '自分の最後のメッセージを編集' },
-  { keys: ['Esc'], label: '編集・検索をキャンセル' },
-  { keys: ['Ctrl', '/'], label: 'ショートカット一覧' },
+  { keys: ['Ctrl', 'B'], label: '太字' },
+  { keys: ['Ctrl', 'I'], label: '斜体' },
 ];
 
 function ShortcutModal({ onClose }: { onClose: () => void }) {
@@ -79,24 +82,59 @@ export default function Layout() {
   const threadPanelMessageId = useAppStore((s) => s.threadPanelMessageId);
   const activeChannelId = useAppStore((s) => s.activeChannelId);
   const notificationsPanelOpen = useAppStore((s) => s.notificationsPanelOpen);
+  const savedItemsPanelOpen = useAppStore((s) => s.savedItemsPanelOpen);
   const mobileSidebarOpen = useAppStore((s) => s.mobileSidebarOpen);
   const setMobileSidebarOpen = useAppStore((s) => s.setMobileSidebarOpen);
   const setActiveChannel = useAppStore((s) => s.setActiveChannel);
   const [shortcutOpen, setShortcutOpen] = useState(false);
+  const [quickSwitcherOpen, setQuickSwitcherOpen] = useState(false);
+  const closeThreadPanel = useAppStore((s) => s.closeThreadPanel);
+  const setNotificationsPanelOpen = useAppStore((s) => s.setNotificationsPanelOpen);
+  const setSavedItemsPanelOpen = useAppStore((s) => s.setSavedItemsPanelOpen);
+  const setSearchQuery = useAppStore((s) => s.setSearchQuery);
 
-  const rightPanel = threadPanelMessageId || notificationsPanelOpen;
+  const rightPanel = threadPanelMessageId || notificationsPanelOpen || savedItemsPanelOpen;
 
-  // Ctrl+/ でショートカット一覧を開く
+  // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName;
+      const isInput = tag === 'INPUT' || tag === 'TEXTAREA';
+
+      // Ctrl+/ → shortcut help
       if ((e.ctrlKey || e.metaKey) && e.key === '/') {
         e.preventDefault();
         setShortcutOpen((v) => !v);
+        return;
+      }
+
+      // Cmd+K → quick switcher
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        setQuickSwitcherOpen((v) => !v);
+        return;
+      }
+
+      // Escape → close panels/modals (when not in input)
+      if (e.key === 'Escape' && !isInput) {
+        if (quickSwitcherOpen) { setQuickSwitcherOpen(false); return; }
+        if (shortcutOpen) { setShortcutOpen(false); return; }
+        if (threadPanelMessageId) { closeThreadPanel(); return; }
+        if (notificationsPanelOpen) { setNotificationsPanelOpen(false); return; }
+        if (savedItemsPanelOpen) { setSavedItemsPanelOpen(false); return; }
+      }
+
+      // Ctrl+F → search in channel
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f' && !isInput) {
+        e.preventDefault();
+        // Dispatch a custom event that ChannelHeader can listen to
+        window.dispatchEvent(new CustomEvent('open-channel-search'));
+        return;
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, []);
+  }, [quickSwitcherOpen, shortcutOpen, threadPanelMessageId, notificationsPanelOpen, savedItemsPanelOpen, closeThreadPanel, setNotificationsPanelOpen, setSavedItemsPanelOpen, setSearchQuery]);
 
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT);
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_DEFAULT);
@@ -218,6 +256,7 @@ export default function Layout() {
             <ChannelHeader onMenuClick={() => setMobileSidebarOpen(true)} />
             <PinBar />
             <MessageList />
+            <TypingIndicator />
             <MessageInput />
           </>
         ) : (
@@ -271,7 +310,11 @@ export default function Layout() {
               className="fixed inset-0 z-50 flex flex-col"
               style={{ background: '#FFFFFF' }}
             >
-              {threadPanelMessageId ? <ThreadPanel /> : <NotificationsPanel />}
+              {threadPanelMessageId
+                ? <ThreadPanel />
+                : savedItemsPanelOpen
+                ? <SavedItemsPanel />
+                : <NotificationsPanel />}
             </div>
           )}
           {/* Desktop: inline panel */}
@@ -280,7 +323,11 @@ export default function Layout() {
               className="flex flex-col overflow-hidden flex-shrink-0"
               style={{ width: rightPanelWidth }}
             >
-              {threadPanelMessageId ? <ThreadPanel /> : <NotificationsPanel />}
+              {threadPanelMessageId
+                ? <ThreadPanel />
+                : savedItemsPanelOpen
+                ? <SavedItemsPanel />
+                : <NotificationsPanel />}
             </aside>
           )}
         </>
@@ -293,6 +340,9 @@ export default function Layout() {
           onHomeClick={() => { setActiveChannel(null); setMobileSidebarOpen(false); }}
         />
       )}
+
+      {/* Quick switcher (Cmd+K) */}
+      {quickSwitcherOpen && <QuickSwitcher onClose={() => setQuickSwitcherOpen(false)} />}
 
       {/* Shortcut help modal */}
       {shortcutOpen && <ShortcutModal onClose={() => setShortcutOpen(false)} />}

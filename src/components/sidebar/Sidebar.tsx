@@ -4,6 +4,7 @@ import { useAppStore } from '../../store/useAppStore';
 import { signOut, getOrCreateDMChannel, getDMChannelName, joinChannelIfNeeded } from '../../services';
 import AddChannelModal from './AddChannelModal';
 import { useUnreadChannels, markChannelRead } from '../../hooks/useUnreadChannels';
+import { StatusPicker } from '../ui/StatusPicker';
 import type { User } from '../../types';
 
 // ─── New DM modal ─────────────────────────────────────────────────────────────
@@ -96,6 +97,7 @@ export default function Sidebar() {
   const [dmOpen, setDmOpen] = useState(true);
   const [inviteCopied, setInviteCopied] = useState(false);
   const [channelSearch, setChannelSearch] = useState('');
+  const [statusPickerAnchor, setStatusPickerAnchor] = useState<DOMRect | null>(null);
 
   const currentUser = users.find((u) => u.uid === user?.uid) ?? user;
   const otherUsers = users.filter((u) => u.uid !== user?.uid);
@@ -412,6 +414,10 @@ export default function Sidebar() {
       <div
         className="px-3 py-2 flex items-center gap-2 flex-shrink-0 hover:bg-white/10 cursor-pointer transition-colors"
         style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}
+        onClick={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          setStatusPickerAnchor(rect);
+        }}
       >
         <div className="relative flex-shrink-0">
           {currentUser?.photoURL ? (
@@ -428,10 +434,14 @@ export default function Sidebar() {
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-white text-[13px] font-semibold truncate leading-tight">{currentUser?.displayName ?? 'ユーザー'}</p>
-          <p className="text-[#CFC3CF] text-[11px]">{currentUser?.online ? 'アクティブ' : 'オフライン'}</p>
+          <p className="text-[#CFC3CF] text-[11px] truncate">
+            {currentUser?.status
+              ? `${currentUser.status.emoji} ${currentUser.status.text}`
+              : currentUser?.online ? 'アクティブ' : 'オフライン'}
+          </p>
         </div>
         <button
-          onClick={handleSignOut}
+          onClick={(e) => { e.stopPropagation(); handleSignOut(); }}
           title="サインアウト"
           className="text-[#CFC3CF] hover:text-white p-1 rounded hover:bg-white/10 transition-colors flex-shrink-0"
         >
@@ -448,6 +458,13 @@ export default function Sidebar() {
           currentUid={user.uid}
           onSelect={handleOpenDM}
           onClose={() => setShowNewDM(false)}
+        />
+      )}
+      {statusPickerAnchor && (
+        <StatusPicker
+          anchor={statusPickerAnchor}
+          currentStatus={currentUser?.status}
+          onClose={() => setStatusPickerAnchor(null)}
         />
       )}
     </nav>

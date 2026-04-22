@@ -16,13 +16,24 @@ export default function NavRail() {
   const isChannelActive = !!(activeChannelId && activeChannel && !activeChannel.name.startsWith('__dm__'));
   const isDMActive = !!(activeChannelId && activeChannel?.name.startsWith('__dm__'));
 
+  const savedItemsPanelOpen = useAppStore((s) => s.savedItemsPanelOpen);
+  const setSavedItemsPanelOpen = useAppStore((s) => s.setSavedItemsPanelOpen);
+  const savedMessages = useAppStore((s) => s.savedMessages);
+
   const handleHome = () => {
     setActiveChannel(null);
     setNotificationsPanelOpen(false);
+    setSavedItemsPanelOpen(false);
   };
 
   const handleActivity = () => {
     setNotificationsPanelOpen(!notificationsPanelOpen);
+    if (!notificationsPanelOpen) setSavedItemsPanelOpen(false);
+  };
+
+  const handleSaved = () => {
+    setSavedItemsPanelOpen(!savedItemsPanelOpen);
+    if (!savedItemsPanelOpen) setNotificationsPanelOpen(false);
   };
 
   const NavBtn = ({
@@ -120,6 +131,26 @@ export default function NavRail() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
         </svg>
         <span className="text-[9px] leading-none">通知</span>
+      </NavBtn>
+
+      {/* Saved Items */}
+      <NavBtn
+        title="保存済みアイテム"
+        onClick={handleSaved}
+        active={savedItemsPanelOpen}
+        badge={
+          savedMessages.length > 0 ? (
+            <span
+              className="absolute top-1 right-1 w-2 h-2 rounded-full"
+              style={{ background: '#E8A400' }}
+            />
+          ) : null
+        }
+      >
+        <svg className="w-5 h-5" fill={savedItemsPanelOpen ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z" />
+        </svg>
+        <span className="text-[9px] leading-none">保存</span>
       </NavBtn>
 
       <div className="flex-1" />

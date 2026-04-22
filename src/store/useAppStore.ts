@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AppStore, User, Channel, Message, Thread, Notification } from '../types';
+import type { AppStore, User, Channel, Message, Thread, Notification, SavedMessage } from '../types';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 拡張型: タスク要件の追加フィールド・アクションを補完する
@@ -146,6 +146,18 @@ export const useAppStore = create<ExtendedStore>((set, _get) => ({
       unreadCount: 0,
     })),
 
+  // ── Saved Messages ────────────────────────────────────────────────────────
+  savedMessages: [],
+  setSavedMessages: (savedMessages: SavedMessage[]) => set({ savedMessages }),
+  addSavedMessage: (message: SavedMessage) =>
+    set((state) => ({
+      savedMessages: [message, ...state.savedMessages.filter((m) => m.messageId !== message.messageId)],
+    })),
+  removeSavedMessage: (messageId: string) =>
+    set((state) => ({
+      savedMessages: state.savedMessages.filter((m) => m.messageId !== messageId),
+    })),
+
   // ── Thread パネル管理 ─────────────────────────────────────────────────────
   activeThreadMessageId: null,
   threadMessages: [],
@@ -162,6 +174,7 @@ export const useAppStore = create<ExtendedStore>((set, _get) => ({
   threadPanelMessageId: null,
   searchQuery: '',
   notificationsPanelOpen: false,
+  savedItemsPanelOpen: false,
   editingMessageId: null,
   setSidebarOpen: (open: boolean) => set({ sidebarOpen: open }),
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
@@ -172,6 +185,9 @@ export const useAppStore = create<ExtendedStore>((set, _get) => ({
   closeThreadPanel: () =>
     set({ threadPanelMessageId: null, activeThreadMessageId: null }),
   setSearchQuery: (searchQuery: string) => set({ searchQuery }),
-  setNotificationsPanelOpen: (notificationsPanelOpen: boolean) => set({ notificationsPanelOpen }),
+  setNotificationsPanelOpen: (notificationsPanelOpen: boolean) =>
+    set({ notificationsPanelOpen, ...(notificationsPanelOpen ? { savedItemsPanelOpen: false } : {}) }),
+  setSavedItemsPanelOpen: (savedItemsPanelOpen: boolean) =>
+    set({ savedItemsPanelOpen, ...(savedItemsPanelOpen ? { notificationsPanelOpen: false } : {}) }),
   setEditingMessageId: (editingMessageId: string | null) => set({ editingMessageId }),
 }));

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { useAppStore } from '../../store/useAppStore';
 import { formatFullDateTime } from '../../utils/formatDate';
+import ChannelSettingsModal from './ChannelSettingsModal';
 import type { User } from '../../types';
 
 // ─── Members panel (portal) ───────────────────────────────────────────────────
@@ -89,6 +90,7 @@ export default function ChannelHeader({ onMenuClick }: { onMenuClick?: () => voi
   const [searchOpen, setSearchOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
   const [membersAnchor, setMembersAnchor] = useState<DOMRect | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const infoButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -101,6 +103,15 @@ export default function ChannelHeader({ onMenuClick }: { onMenuClick?: () => voi
   useEffect(() => {
     if (searchOpen) searchRef.current?.focus();
   }, [searchOpen]);
+
+  // Ctrl+F opens search
+  useEffect(() => {
+    const handler = () => {
+      setSearchOpen(true);
+    };
+    window.addEventListener('open-channel-search', handler);
+    return () => window.removeEventListener('open-channel-search', handler);
+  }, []);
 
   if (!channel) return null;
 
@@ -167,7 +178,13 @@ export default function ChannelHeader({ onMenuClick }: { onMenuClick?: () => voi
               <span className="text-gray-700 font-bold text-[18px] leading-none flex-shrink-0">#</span>
             )}
             <div className="min-w-0">
-              <h2 className="text-[15px] font-bold text-gray-900 truncate leading-tight">{displayName}</h2>
+              <h2
+                className={`text-[15px] font-bold text-gray-900 truncate leading-tight ${!isDM ? 'cursor-pointer hover:underline' : ''}`}
+                onClick={!isDM ? () => setSettingsOpen(true) : undefined}
+                title={!isDM ? 'チャンネル設定' : undefined}
+              >
+                {displayName}
+              </h2>
               {isDM && dmOtherUser && !dmOtherUser.online && dmOtherUser.lastSeen && (
                 <p className="text-[11px] text-gray-400 leading-tight" title={formatFullDateTime(dmOtherUser.lastSeen)}>
                   最終確認: {formatFullDateTime(dmOtherUser.lastSeen)}
@@ -175,6 +192,11 @@ export default function ChannelHeader({ onMenuClick }: { onMenuClick?: () => voi
               )}
               {isDM && dmOtherUser?.online && (
                 <p className="text-[11px] text-[#007A5A] leading-tight">アクティブ</p>
+              )}
+              {isDM && dmOtherUser?.status && (
+                <p className="text-[11px] text-[#616061] leading-tight">
+                  {dmOtherUser.status.emoji} {dmOtherUser.status.text}
+                </p>
               )}
             </div>
           </div>
@@ -251,6 +273,20 @@ export default function ChannelHeader({ onMenuClick }: { onMenuClick?: () => voi
               <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
             </svg>
           </button>
+
+          {/* Channel settings button (non-DM only) */}
+          {!isDM && (
+            <button
+              title="チャンネル設定"
+              onClick={() => setSettingsOpen(true)}
+              className="w-8 h-8 flex items-center justify-center rounded text-[#616061] hover:bg-[#F8F8F8] hover:text-[#1D1C1D] transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </button>
+          )}
         </div>
       </header>
 
@@ -262,6 +298,11 @@ export default function ChannelHeader({ onMenuClick }: { onMenuClick?: () => voi
           anchorRect={membersAnchor}
           onClose={() => { setMembersOpen(false); setMembersAnchor(null); }}
         />
+      )}
+
+      {/* Channel settings modal */}
+      {settingsOpen && (
+        <ChannelSettingsModal onClose={() => setSettingsOpen(false)} />
       )}
     </>
   );

@@ -1,16 +1,22 @@
 import { useState, useRef, useEffect, KeyboardEvent } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import { useThreads } from '../../hooks/useThreads';
-import { sendThreadReply, toggleReaction } from '../../services';
+import {
+  sendThreadReply,
+  toggleReaction,
+  toggleThreadReaction,
+  updateThreadReply,
+  deleteThreadReply,
+} from '../../services';
 import { formatMessageTime, formatFullDateTime } from '../../utils/formatDate';
 import { renderMarkdown } from '../../utils/markdown';
 import { toast } from '../ui/Toast';
-
-const EMOJI_LIST = ['👍', '❤️', '😂', '🎉', '🔥', '👀', '✅', '🙏', '💪', '😊'];
-const THREAD_EMOJI = ['😀','😂','🥰','😎','🤔','😅','😭','🎉','👍','👏','🔥','❤️','✅','🚀','💡','🙏','😊','👀','💪','🤝'];
+import EmojiPicker from '../ui/EmojiPicker';
+import type { Thread } from '../../types';
 
 export default function ThreadPanel() {
   const { user } = useAppStore((s) => s.auth);
+  const users = useAppStore((s) => s.users);
   const activeChannelId = useAppStore((s) => s.activeChannelId);
   const channels = useAppStore((s) => s.channels);
   const threadPanelMessageId = useAppStore((s) => s.threadPanelMessageId);
@@ -24,6 +30,8 @@ export default function ThreadPanel() {
   const [sending, setSending] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [showReactionFor, setShowReactionFor] = useState<string | null>(null);
+  const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
+  const [editText, setEditText] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const parentMessage = messages.find((m) => m.id === threadPanelMessageId);
@@ -59,17 +67,50 @@ export default function ThreadPanel() {
   };
 
   const handleReaction = async (messageId: string, emoji: string, isParent = false) => {
-    if (!user || !activeChannelId) return;
+    if (!user || !activeChannelId || !threadPanelMessageId) return;
     try {
-      const targetMsg = isParent
-        ? messages.find((m) => m.id === messageId)
-        : threads.find((t) => t.id === messageId);
-      const currentReactions = (targetMsg as any)?.reactions ?? {};
-      await toggleReaction(activeChannelId, isParent ? messageId : threadPanelMessageId!, emoji, user.uid, currentReactions);
+      if (isParent) {
+        // 親メッセージへのリアクション
+        const parentMsg = messages.find((m) => m.id === messageId);
+        const currentReactions = parentMsg?.reactions ?? {};
+        await toggleReaction(activeChannelId, messageId, emoji, user.uid, currentReactions);
+      } else {
+        // スレッド返信へのリアクション（正しいパスに保存）
+        const thread = threads.find((t) => t.id === messageId);
+        const currentReactions = thread?.reactions ?? {};
+        await toggleThreadReaction(activeChannelId, threadPanelMessageId, messageId, emoji, user.uid, currentReactions);
+      }
     } catch (err) {
       console.error('Reaction error:', err);
     }
     setShowReactionFor(null);
+  };
+
+  const handleEditStart = (thread: Thread) => {
+    setEditingThreadId(thread.id);
+    setEditText(thread.text);
+  };
+
+  const handleEditSave = async (thread: Thread) => {
+    if (!activeChannelId || !threadPanelMessageId || !editText.trim()) return;
+    try {
+      await updateThreadReply(activeChannelId, threadPanelMessageId, thread.id, editText.trim());
+      setEditingThreadId(null);
+      toast.success('編集しました');
+    } catch {
+      toast.error('編集に失敗しました');
+    }
+  };
+
+  const handleDelete = async (threadId: string) => {
+    if (!activeChannelId || !threadPanelMessageId) return;
+    if (!window.confirm('この返信を削除しますか？')) return;
+    try {
+      await deleteThreadReply(activeChannelId, threadPanelMessageId, threadId);
+      toast.success('返信を削除しました');
+    } catch {
+      toast.error('削除に失敗しました');
+    }
   };
 
   const hasText = replyText.trim().length > 0;
@@ -150,6 +191,7 @@ export default function ThreadPanel() {
                         <button
                           key={emoji}
                           onClick={() => handleReaction(parentMessage.id, emoji, true)}
+                          title={uids.map((uid) => users.find((u) => u.uid === uid)?.displayName ?? uid).join(', ')}
                           className="flex items-center gap-0.5 text-[12px] px-1.5 py-0.5 transition-colors"
                           style={{
                             borderRadius: '24px',
@@ -182,81 +224,162 @@ export default function ThreadPanel() {
 
         {/* Thread replies */}
         <div className="pb-4">
-          {threads.map((thread) => (
-            <div
-              key={thread.id}
-              className="relative flex gap-3 px-4 py-2 transition-colors group"
-              onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = '#F8F8F8'; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; setShowReactionFor(null); }}
-            >
-              {thread.photoURL ? (
-                <img
-                  src={thread.photoURL}
-                  alt={thread.displayName}
-                  className="w-8 h-8 object-cover flex-shrink-0"
-                  style={{ borderRadius: '4px' }}
-                />
-              ) : (
-                <div
-                  className="w-8 h-8 flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                  style={{ borderRadius: '4px', background: '#1164A3' }}
-                >
-                  {thread.displayName[0]?.toUpperCase() ?? '?'}
-                </div>
-              )}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-baseline gap-2 mb-0.5">
-                  <span className="font-bold text-[14px]" style={{ color: '#1D1C1D' }}>
-                    {thread.displayName}
-                  </span>
-                  <span
-                    className="text-[12px]"
-                    style={{ color: '#616061' }}
-                    title={formatFullDateTime(thread.createdAt)}
-                  >
-                    {formatMessageTime(thread.createdAt)}
-                  </span>
-                </div>
-                <div className="text-[14px] leading-relaxed" style={{ color: '#1D1C1D' }}>
-                  {renderMarkdown(thread.text)}
-                </div>
-              </div>
-
-              {/* Thread reply reaction button */}
+          {threads.map((thread) => {
+            const isOwner = thread.uid === user?.uid;
+            const isEditing = editingThreadId === thread.id;
+            return (
               <div
-                className="absolute right-3 top-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                key={thread.id}
+                className="relative flex gap-3 px-4 py-2 transition-colors group"
+                onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = '#F8F8F8'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; setShowReactionFor(null); }}
               >
-                <div className="relative">
-                  <button
-                    onClick={() => setShowReactionFor(showReactionFor === thread.id ? null : thread.id)}
-                    className="w-7 h-7 flex items-center justify-center rounded text-[#616061] hover:text-[#1D1C1D] transition-colors"
-                    style={{ background: '#FFFFFF', border: '1px solid #DDDDDD', boxShadow: '0 1px 4px rgba(0,0,0,0.1)' }}
-                    title="リアクション"
+                {thread.photoURL ? (
+                  <img
+                    src={thread.photoURL}
+                    alt={thread.displayName}
+                    className="w-8 h-8 object-cover flex-shrink-0"
+                    style={{ borderRadius: '4px' }}
+                  />
+                ) : (
+                  <div
+                    className="w-8 h-8 flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                    style={{ borderRadius: '4px', background: '#1164A3' }}
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.182 15.182a4.5 4.5 0 01-6.364 0M21 12a9 9 0 11-18 0 9 9 0 0118 0zM9.75 9.75c0 .414-.168.75-.375.75S9 10.164 9 9.75 9.168 9 9.375 9s.375.336.375.75zm5.625 0c0 .414-.168.75-.375.75s-.375-.336-.375-.75.168-.75.375-.75.375.336.375.75z" />
-                    </svg>
-                  </button>
-                  {showReactionFor === thread.id && (
-                    <div
-                      className="absolute right-0 top-8 flex gap-0.5 p-1.5 z-20"
-                      style={{ background: '#FFFFFF', border: '1px solid #DDDDDD', borderRadius: '6px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}
+                    {thread.displayName[0]?.toUpperCase() ?? '?'}
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-baseline gap-2 mb-0.5">
+                    <span className="font-bold text-[14px]" style={{ color: '#1D1C1D' }}>
+                      {thread.displayName}
+                    </span>
+                    <span
+                      className="text-[12px]"
+                      style={{ color: '#616061' }}
+                      title={formatFullDateTime(thread.createdAt)}
                     >
-                      {EMOJI_LIST.map((emoji) => (
+                      {formatMessageTime(thread.createdAt)}
+                    </span>
+                    {thread.editedAt && (
+                      <span className="text-[11px] text-[#616061]">(編集済み)</span>
+                    )}
+                  </div>
+
+                  {isEditing ? (
+                    <div>
+                      <textarea
+                        value={editText}
+                        onChange={(e) => setEditText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleEditSave(thread); }
+                          if (e.key === 'Escape') setEditingThreadId(null);
+                        }}
+                        className="w-full text-[14px] text-[#1D1C1D] resize-none focus:outline-none p-2 rounded"
+                        style={{ border: '1px solid #1D9BD1', boxShadow: '0 0 0 1px #1D9BD1', minHeight: '60px' }}
+                        autoFocus
+                      />
+                      <div className="flex gap-2 mt-1">
                         <button
-                          key={emoji}
-                          onClick={() => handleReaction(thread.id, emoji)}
-                          className="w-8 h-8 flex items-center justify-center rounded hover:bg-[#F8F8F8] text-[18px]"
-                        >
-                          {emoji}
-                        </button>
-                      ))}
+                          onClick={() => handleEditSave(thread)}
+                          className="px-2 py-1 text-[12px] text-white rounded"
+                          style={{ background: '#007A5A' }}
+                        >保存</button>
+                        <button
+                          onClick={() => setEditingThreadId(null)}
+                          className="px-2 py-1 text-[12px] rounded border border-[#DDDDDD] hover:bg-gray-50"
+                        >キャンセル</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-[14px] leading-relaxed" style={{ color: '#1D1C1D' }}>
+                      {renderMarkdown(thread.text)}
+                    </div>
+                  )}
+
+                  {/* Reactions on thread */}
+                  {Object.keys(thread.reactions ?? {}).length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {Object.entries(thread.reactions ?? {}).map(([emoji, uids]) =>
+                        uids.length > 0 ? (
+                          <button
+                            key={emoji}
+                            onClick={() => handleReaction(thread.id, emoji)}
+                            title={uids.map((uid) => users.find((u) => u.uid === uid)?.displayName ?? uid).join(', ')}
+                            className="flex items-center gap-0.5 text-[12px] px-1.5 py-0.5 transition-colors"
+                            style={{
+                              borderRadius: '24px',
+                              border: user && uids.includes(user.uid) ? '1px solid #1264A3' : '1px solid #DDDDDD',
+                              background: user && uids.includes(user.uid) ? '#E8F5FA' : '#F8F8F8',
+                              color: user && uids.includes(user.uid) ? '#1264A3' : '#616061',
+                            }}
+                          >
+                            <span>{emoji}</span>
+                            <span className="font-medium ml-0.5">{uids.length}</span>
+                          </button>
+                        ) : null
+                      )}
                     </div>
                   )}
                 </div>
+
+                {/* Action toolbar */}
+                {!isEditing && (
+                  <div
+                    className="absolute right-3 top-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                    style={{ background: '#FFFFFF', border: '1px solid #DDDDDD', borderRadius: '6px', padding: '2px', boxShadow: '0 1px 4px rgba(0,0,0,0.1)' }}
+                  >
+                    {/* Reaction */}
+                    <div className="relative">
+                      <button
+                        onClick={() => setShowReactionFor(showReactionFor === thread.id ? null : thread.id)}
+                        className="w-7 h-7 flex items-center justify-center rounded text-[#616061] hover:text-[#1D1C1D] hover:bg-[#F8F8F8] transition-colors"
+                        title="リアクション"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15.182 15.182a4.5 4.5 0 01-6.364 0M21 12a9 9 0 11-18 0 9 9 0 0118 0zM9.75 9.75c0 .414-.168.75-.375.75S9 10.164 9 9.75 9.168 9 9.375 9s.375.336.375.75zm5.625 0c0 .414-.168.75-.375.75s-.375-.336-.375-.75.168-.75.375-.75.375.336.375.75z" />
+                        </svg>
+                      </button>
+                      {showReactionFor === thread.id && (
+                        <div className="absolute right-0 top-8 z-20">
+                          <EmojiPicker
+                            onSelect={(emoji) => handleReaction(thread.id, emoji)}
+                            onClose={() => setShowReactionFor(null)}
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Edit */}
+                    {isOwner && (
+                      <button
+                        onClick={() => handleEditStart(thread)}
+                        className="w-7 h-7 flex items-center justify-center rounded text-[#616061] hover:text-[#1D1C1D] hover:bg-[#F8F8F8] transition-colors"
+                        title="編集"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+                        </svg>
+                      </button>
+                    )}
+
+                    {/* Delete */}
+                    {isOwner && (
+                      <button
+                        onClick={() => handleDelete(thread.id)}
+                        className="w-7 h-7 flex items-center justify-center rounded text-[#616061] hover:text-red-600 hover:bg-red-50 transition-colors"
+                        title="削除"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <div ref={bottomRef} />
@@ -301,22 +424,11 @@ export default function ThreadPanel() {
               {emojiPickerOpen && (
                 <>
                   <div className="fixed inset-0 z-30" onClick={() => setEmojiPickerOpen(false)} />
-                  <div
-                    className="absolute bottom-9 left-0 z-40 p-2"
-                    style={{ background: '#FFFFFF', border: '1px solid #DDDDDD', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', width: '220px' }}
-                  >
-                    <p className="text-[11px] font-bold text-[#616061] uppercase tracking-wide px-1 mb-1.5">絵文字</p>
-                    <div className="grid grid-cols-10 gap-0.5">
-                      {THREAD_EMOJI.map((emoji) => (
-                        <button
-                          key={emoji}
-                          onClick={() => { setReplyText((t) => t + emoji); setEmojiPickerOpen(false); }}
-                          className="w-7 h-7 flex items-center justify-center rounded hover:bg-[#F8F8F8] text-[16px]"
-                        >
-                          {emoji}
-                        </button>
-                      ))}
-                    </div>
+                  <div className="absolute bottom-9 left-0 z-40">
+                    <EmojiPicker
+                      onSelect={(emoji) => { setReplyText((t) => t + emoji); setEmojiPickerOpen(false); }}
+                      onClose={() => setEmojiPickerOpen(false)}
+                    />
                   </div>
                 </>
               )}
