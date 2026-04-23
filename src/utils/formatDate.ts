@@ -1,5 +1,5 @@
 import { Timestamp } from 'firebase/firestore';
-import { format, isToday, isYesterday } from 'date-fns';
+import { format, isToday, isYesterday, isThisWeek } from 'date-fns';
 import { ja } from 'date-fns/locale';
 
 function toDate(timestamp: Timestamp | null | undefined): Date {
@@ -8,11 +8,26 @@ function toDate(timestamp: Timestamp | null | undefined): Date {
 }
 
 /**
- * メッセージの時刻を HH:mm 形式で返す
+ * メッセージの時刻を HH:mm 形式で返す（メッセージリスト内のコンパクト表示用）
  */
 export function formatMessageTime(timestamp: Timestamp | null | undefined): string {
   const date = toDate(timestamp);
   return format(date, 'HH:mm');
+}
+
+/**
+ * 通知・保存アイテム用の相対的な時刻表示
+ * - 今日: HH:mm
+ * - 昨日: 昨日 HH:mm
+ * - 今週: 曜日 HH:mm
+ * - それ以前: M月d日 HH:mm
+ */
+export function formatRelativeTime(timestamp: Timestamp | null | undefined): string {
+  const date = toDate(timestamp);
+  if (isToday(date)) return format(date, 'HH:mm');
+  if (isYesterday(date)) return `昨日 ${format(date, 'HH:mm')}`;
+  if (isThisWeek(date, { weekStartsOn: 1 })) return format(date, 'E HH:mm', { locale: ja });
+  return format(date, 'M月d日', { locale: ja });
 }
 
 /**

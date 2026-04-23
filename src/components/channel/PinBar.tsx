@@ -97,7 +97,9 @@ function AddPinForm({
       <button
         type="button"
         onClick={onCancel}
-        className="px-2 py-1 rounded text-[13px] text-[#616061] hover:bg-[#F8F8F8] transition-colors flex-shrink-0"
+        className="px-2 py-1 rounded text-[13px] text-[#616061] flex-shrink-0"
+        onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
       >
         ×
       </button>
@@ -163,7 +165,13 @@ function EditPinForm({
         style={{ minWidth: '120px', border: '1px solid #DDDDDD', borderRadius: '4px', padding: '3px 8px' }}
       />
       <button type="submit" className="px-3 py-1 rounded text-[13px] font-medium text-white flex-shrink-0" style={{ background: '#007A5A' }}>保存</button>
-      <button type="button" onClick={onCancel} className="px-2 py-1 rounded text-[13px] text-[#616061] hover:bg-[#F8F8F8] flex-shrink-0">×</button>
+      <button
+        type="button"
+        onClick={onCancel}
+        className="px-2 py-1 rounded text-[13px] text-[#616061] flex-shrink-0"
+        onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+      >×</button>
     </form>
   );
 }

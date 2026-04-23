@@ -321,7 +321,7 @@ export default function Layout() {
           {!isMobile && (
             <aside
               className="flex flex-col overflow-hidden flex-shrink-0"
-              style={{ width: rightPanelWidth }}
+              style={{ width: rightPanelWidth, animation: 'slideInRight 180ms ease' }}
             >
               {threadPanelMessageId
                 ? <ThreadPanel />

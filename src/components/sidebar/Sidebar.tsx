@@ -55,7 +55,9 @@ function NewDMModal({
             <button
               key={u.uid}
               onClick={() => { onSelect(u); onClose(); }}
-              className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#F8F8F8] transition-colors text-left"
+              className="w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left"
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(29,28,29,0.04)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
             >
               <div className="relative flex-shrink-0">
                 {u.photoURL ? (
@@ -230,7 +232,14 @@ export default function Sidebar() {
             </button>
           </button>
 
-          {channelsOpen && (
+          <div
+            style={{
+              overflow: 'hidden',
+              maxHeight: channelsOpen ? '9999px' : '0',
+              transition: channelsOpen ? 'max-height 300ms ease-in' : 'max-height 200ms ease-out',
+            }}
+          >
+          {true && (
             <>
               {/* チャンネル検索 */}
               {regularChannels.length > 4 && (
@@ -275,12 +284,15 @@ export default function Sidebar() {
                         onMouseEnter={(e) => { if (!isActive) { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = '#FFFFFF'; } }}
                         onMouseLeave={(e) => { if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = isActive ? '#FFFFFF' : hasUnread ? '#FFFFFF' : '#CFC3CF'; } }}
                       >
-                        <span className="text-[15px] opacity-70 flex-shrink-0">#</span>
+                        <span
+                          className="text-[15px] flex-shrink-0"
+                          style={{ opacity: isActive ? 1 : 0.7, fontWeight: isActive ? 700 : 400 }}
+                        >#</span>
                         <span className="truncate flex-1 text-left">{ch.name}</span>
                         {hasUnread && !isActive && (
                           <span
-                            className="flex-shrink-0 min-w-[8px] h-2 w-2 rounded-full"
-                            style={{ background: '#FFFFFF' }}
+                            className="flex-shrink-0 w-2 h-2 rounded-full"
+                            style={{ background: '#FFFFFF', flexShrink: 0 }}
                           />
                         )}
                       </button>
@@ -305,6 +317,7 @@ export default function Sidebar() {
               </ul>
             </>
           )}
+          </div>
         </div>
 
         {/* ── ダイレクトメッセージセクション ── */}
@@ -330,7 +343,13 @@ export default function Sidebar() {
             </button>
           </button>
 
-          {dmOpen && (
+          <div
+            style={{
+              overflow: 'hidden',
+              maxHeight: dmOpen ? '9999px' : '0',
+              transition: dmOpen ? 'max-height 300ms ease-in' : 'max-height 200ms ease-out',
+            }}
+          >
             <ul className="mt-0.5">
               {/* 自分 */}
               <li>
@@ -426,7 +445,7 @@ export default function Sidebar() {
                 </button>
               </li>
             </ul>
-          )}
+          </div>
         </div>
       </div>
 

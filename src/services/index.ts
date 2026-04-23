@@ -383,7 +383,8 @@ export async function sendThreadReply(
   channelId: string,
   messageId: string,
   text: string,
-  user: User
+  user: User,
+  notifyUids: string[] = []
 ): Promise<void> {
   await addDoc(
     collection(db, 'channels', channelId, 'messages', messageId, 'threads'),
@@ -398,7 +399,27 @@ export async function sendThreadReply(
   );
   // increment(1) でレースコンディションを防ぐ
   const msgRef = doc(db, 'channels', channelId, 'messages', messageId);
-  await updateDoc(msgRef, { threadCount: increment(1) });
+  await updateDoc(msgRef, {
+    threadCount: increment(1),
+    lastReplyAt: serverTimestamp(),
+    threadParticipants: arrayUnion(user.uid),
+  });
+
+  // スレッド参加者に通知を送る（自分自身は除外）
+  const targets = [...new Set(notifyUids)].filter((uid) => uid !== user.uid);
+  await Promise.all(
+    targets.map((uid) =>
+      addDoc(collection(db, 'notifications', uid, 'items'), {
+        channelId,
+        messageId,
+        fromUser: user.uid,
+        fromDisplayName: user.displayName,
+        text: text.slice(0, 100),
+        read: false,
+        createdAt: serverTimestamp(),
+      }).catch(() => {})
+    )
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -5,14 +5,11 @@ import React from 'react';
 type BlockNode =
   | { type: 'para'; text: string }
   | { type: 'code'; lang: string; lines: string[] }
-  | { type: 'quote'; lines: string[] };
+  | { type: 'quote'; lines: string[] }
+  | { type: 'ul'; items: string[] }
+  | { type: 'ol'; items: string[] };
 
 // ─── Block parser ────────────────────────────────────────────────────────────
-//
-// Splits raw text into block-level nodes:
-//   ```lang      → code fence (Block Kit: rich_text_preformatted)
-//   > text       → blockquote (Block Kit: rich_text_quote)
-//   everything else → paragraph (inline formatting applied)
 
 function parseBlocks(text: string): BlockNode[] {
   const rawLines = text.split('\n');
@@ -32,7 +29,6 @@ function parseBlocks(text: string): BlockNode[] {
         codeLines.push(rawLines[i]);
         i++;
       }
-      // Remove leading/trailing blank lines inside the fence
       while (codeLines.length > 0 && codeLines[0].trim() === '') codeLines.shift();
       while (codeLines.length > 0 && codeLines[codeLines.length - 1].trim() === '') codeLines.pop();
       blocks.push({ type: 'code', lang, lines: codeLines });
@@ -50,11 +46,38 @@ function parseBlocks(text: string): BlockNode[] {
       continue;
     }
 
+    // ── Unordered list: -, *, • ────────────────────────────────────
+    if (/^(\s*[-*•]\s)/.test(line)) {
+      const items: string[] = [];
+      while (i < rawLines.length && /^(\s*[-*•]\s)/.test(rawLines[i])) {
+        items.push(rawLines[i].replace(/^\s*[-*•]\s/, ''));
+        i++;
+      }
+      blocks.push({ type: 'ul', items });
+      continue;
+    }
+
+    // ── Ordered list: 1. 2. 3. ────────────────────────────────────
+    if (/^\d+\.\s/.test(line)) {
+      const items: string[] = [];
+      while (i < rawLines.length && /^\d+\.\s/.test(rawLines[i])) {
+        items.push(rawLines[i].replace(/^\d+\.\s/, ''));
+        i++;
+      }
+      blocks.push({ type: 'ol', items });
+      continue;
+    }
+
     // ── Paragraph ─────────────────────────────────────────────────
     const paraLines: string[] = [];
     while (i < rawLines.length) {
       const l = rawLines[i];
-      if (l.trimStart().startsWith('```') || l.startsWith('>')) break;
+      if (
+        l.trimStart().startsWith('```') ||
+        l.startsWith('>') ||
+        /^(\s*[-*•]\s)/.test(l) ||
+        /^\d+\.\s/.test(l)
+      ) break;
       paraLines.push(l);
       i++;
     }
@@ -67,30 +90,14 @@ function parseBlocks(text: string): BlockNode[] {
 }
 
 // ─── Inline renderer ─────────────────────────────────────────────────────────
-//
-// Pattern groups:
-//  1 — @[name](uid)  mention
-//  2 — https?://...  auto-link URL
-//  3 — *bold*
-//  4 — _italic_
-//  5 — ~strikethrough~
-//  6 — `inline code`
-//
-// Word-boundary rules (matching Slack):
-//  opening delimiter must NOT be preceded by \w
-//  opening delimiter must NOT be immediately followed by whitespace
-//  closing delimiter must NOT be immediately preceded by whitespace
-//  closing delimiter must NOT be followed by \w
 
-/** URL がhttp/httpsのみかチェック（XSS防止） */
 function isSafeUrl(url: string): boolean {
   return /^https?:\/\//i.test(url.trim());
 }
 
 function renderInline(text: string): React.ReactNode[] {
-  // Group 1: @mention  2: [text](url) link  3: bare URL  4: bold  5: italic  6: strike  7: code
   const pattern =
-    /(@\[[^\]]+\]\([^)]+\))|(\[([^\]]+)\]\((https?:\/\/[^\s)]+)\))|(https?:\/\/[^\s<>"]+[^\s<>".,;!?()'\]])|(?<!\w)\*([^\s*](?:[^*\n]*[^\s*])?)\*(?!\w)|(?<!\w)_([^\s_](?:[^_\n]*[^\s_])?)_(?!\w)|(?<!\w)~([^\s~](?:[^~\n]*[^\s~])?)~(?!\w)|`([^`\n]+)`/g;
+    /(@\[[^\]]+\]\([^)]+\))|(\[([^\]]+)\]\((https?:\/\/[^\s)]+)\))|(https?:\/\/[^\s<>"]+[^\s<>".,;!?()'\]])|(?<!\w)\*([^\s*](?:[^*\n]*[^\s*])?)\*(?!\w)|(?<!\w)_([^\s_](?:[^_\n]*[^\s_])?)_(?!\w)|(?<!\w)~([^\s~](?:[^~\n]*[^\s~])?)~(?!\w)|`([^`\n]+)`|(?<!\w)#([a-z][a-zA-Z0-9_-]*)(?!\w)/g;
 
   const nodes: React.ReactNode[] = [];
   let lastIndex = 0;
@@ -115,7 +122,7 @@ function renderInline(text: string): React.ReactNode[] {
             background: 'rgba(18,100,163,0.1)',
             borderRadius: '3px',
             padding: '0 3px',
-            fontWeight: 600,
+            fontWeight: 700,
             cursor: 'pointer',
           }}
         >
@@ -123,7 +130,6 @@ function renderInline(text: string): React.ReactNode[] {
         </span>
       );
     } else if (match[2]) {
-      // [text](url) markdown link — only safe URLs
       const linkText = match[3];
       const linkUrl = match[4];
       nodes.push(
@@ -145,7 +151,6 @@ function renderInline(text: string): React.ReactNode[] {
         )
       );
     } else if (match[5]) {
-      // bare URL auto-link — only allow http/https (prevent javascript:/data: XSS)
       const rawUrl = match[5];
       nodes.push(
         <a
@@ -162,16 +167,12 @@ function renderInline(text: string): React.ReactNode[] {
         </a>
       );
     } else if (match[6] !== undefined) {
-      // *bold*
       nodes.push(<strong key={key} style={{ fontWeight: 700 }}>{match[6]}</strong>);
     } else if (match[7] !== undefined) {
-      // _italic_
       nodes.push(<em key={key} style={{ fontStyle: 'italic' }}>{match[7]}</em>);
     } else if (match[8] !== undefined) {
-      // ~strikethrough~
-      nodes.push(<s key={key} style={{ textDecoration: 'line-through' }}>{match[8]}</s>);
+      nodes.push(<s key={key}>{match[8]}</s>);
     } else if (match[9] !== undefined) {
-      // `inline code`
       nodes.push(
         <code
           key={key}
@@ -183,10 +184,28 @@ function renderInline(text: string): React.ReactNode[] {
             borderRadius: '3px',
             padding: '2px 5px',
             color: '#E01E5A',
+            lineHeight: 1.4,
           }}
         >
           {match[9]}
         </code>
+      );
+    } else if (match[10] !== undefined) {
+      // #channel-name mention
+      nodes.push(
+        <span
+          key={key}
+          style={{
+            color: '#1264A3',
+            background: 'rgba(18,100,163,0.1)',
+            borderRadius: '3px',
+            padding: '0 3px',
+            fontWeight: 700,
+            cursor: 'pointer',
+          }}
+        >
+          #{match[10]}
+        </span>
       );
     }
 
@@ -205,7 +224,6 @@ function renderInline(text: string): React.ReactNode[] {
 function renderBlock(block: BlockNode, index: number): React.ReactNode {
   switch (block.type) {
 
-    // Block Kit: rich_text_preformatted
     case 'code':
       return (
         <pre
@@ -246,7 +264,6 @@ function renderBlock(block: BlockNode, index: number): React.ReactNode {
         </pre>
       );
 
-    // Block Kit: rich_text_quote style
     case 'quote':
       return (
         <blockquote
@@ -269,7 +286,42 @@ function renderBlock(block: BlockNode, index: number): React.ReactNode {
         </blockquote>
       );
 
-    // Paragraph: inline formatting
+    case 'ul':
+      return (
+        <ul
+          key={index}
+          style={{
+            margin: '2px 0',
+            paddingLeft: '20px',
+            listStyleType: 'disc',
+          }}
+        >
+          {block.items.map((item, j) => (
+            <li key={j} style={{ margin: '1px 0', wordBreak: 'break-word' }}>
+              {renderInline(item)}
+            </li>
+          ))}
+        </ul>
+      );
+
+    case 'ol':
+      return (
+        <ol
+          key={index}
+          style={{
+            margin: '2px 0',
+            paddingLeft: '20px',
+            listStyleType: 'decimal',
+          }}
+        >
+          {block.items.map((item, j) => (
+            <li key={j} style={{ margin: '1px 0', wordBreak: 'break-word' }}>
+              {renderInline(item)}
+            </li>
+          ))}
+        </ol>
+      );
+
     case 'para':
     default:
       return block.text ? (
@@ -295,7 +347,6 @@ export function renderMarkdown(text: string): React.ReactNode {
   const blocks = parseBlocks(text);
   if (blocks.length === 0) return null;
 
-  // Optimise: single paragraph → no extra wrapper, caller handles layout
   if (blocks.length === 1 && blocks[0].type === 'para') {
     return (
       <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
@@ -304,10 +355,9 @@ export function renderMarkdown(text: string): React.ReactNode {
     );
   }
 
-  // Mixed blocks
   return (
-    <>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
       {blocks.map((block, i) => renderBlock(block, i))}
-    </>
+    </div>
   );
 }

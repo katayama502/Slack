@@ -163,6 +163,7 @@ export default function MessageInput() {
   const [suggestIndex, setSuggestIndex] = useState(0);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [isEmpty, setIsEmpty] = useState(true);
+  const [isFocused, setIsFocused] = useState(false);
   const [showTopBar, setShowTopBar] = useState(true);
   const [charCount, setCharCount] = useState(0);
   const lastSentAtRef = useRef<number>(0);  // rate limiting
@@ -189,8 +190,11 @@ export default function MessageInput() {
   const dmOtherUser = isDM
     ? users.find((u) => u.uid !== user?.uid && channel?.members?.includes(u.uid))
     : null;
+  const isSelfDM = isDM && !dmOtherUser;
   const placeholder = isDM
-    ? `${dmOtherUser?.displayName ?? 'ダイレクトメッセージ'} にメッセージを送信`
+    ? isSelfDM
+      ? '自分へのメモを追加...'
+      : `${dmOtherUser!.displayName} にメッセージを送信`
     : channel ? `#${channel.name} にメッセージを送信` : 'メッセージを送信';
 
   // Reset editor on channel change
@@ -581,9 +585,10 @@ export default function MessageInput() {
       <div
         className="relative transition-all"
         style={{
-          border: `1px solid ${isEmpty && attachedFiles.length === 0 ? '#DDDDDD' : '#1D1C1D'}`,
+          border: `1px solid ${!isEmpty || attachedFiles.length > 0 ? '#1D1C1D' : isFocused ? '#1D9BD1' : '#DDDDDD'}`,
           borderRadius: '8px',
-          boxShadow: isEmpty && attachedFiles.length === 0 ? 'none' : '0 0 0 1px #1D1C1D',
+          boxShadow: !isEmpty || attachedFiles.length > 0 ? '0 0 0 1px #1D1C1D' : isFocused ? '0 0 0 1px #1D9BD1' : 'none',
+          transition: 'border-color 150ms, box-shadow 150ms',
         }}
       >
         {/* Mention suggest */}
@@ -596,8 +601,10 @@ export default function MessageInput() {
             {filteredUsers.map((u, i) => (
               <button key={u.uid}
                 onMouseDown={(e) => { e.preventDefault(); insertMention(u); }}
-                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-sm hover:bg-[#F8F8F8] transition-colors"
-                style={{ background: i === suggestIndex ? '#F8F8F8' : undefined }}>
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-sm"
+                style={{ background: i === suggestIndex ? 'rgba(29,28,29,0.04)' : 'transparent' }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(29,28,29,0.04)'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = i === suggestIndex ? 'rgba(29,28,29,0.04)' : 'transparent'; }}>
                 <div className="relative flex-shrink-0">
                   {u.photoURL
                     ? <img src={u.photoURL} alt={u.displayName} className="w-7 h-7 object-cover" style={{ borderRadius: '4px' }} />
@@ -674,8 +681,10 @@ export default function MessageInput() {
                 </button>
                 <button
                   onClick={() => setLinkPopupOpen(false)}
-                  className="flex-1 py-1.5 rounded text-[13px] text-[#1D1C1D] transition-colors hover:bg-[#F8F8F8]"
+                  className="flex-1 py-1.5 rounded text-[13px] text-[#1D1C1D]"
                   style={{ border: '1px solid #DDDDDD' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                 >
                   キャンセル
                 </button>
@@ -797,8 +806,10 @@ export default function MessageInput() {
             onInput={handleInput}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            className="w-full px-4 py-3 text-[15px] text-[#1D1C1D] focus:outline-none leading-relaxed"
-            style={{ minHeight: '64px', maxHeight: '200px', overflowY: 'auto', wordBreak: 'break-word' }}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
+            className="w-full px-4 py-3 text-[15px] text-[#1D1C1D] focus:outline-none"
+            style={{ minHeight: '64px', maxHeight: '200px', overflowY: 'auto', wordBreak: 'break-word', lineHeight: '1.46875' }}
             suppressContentEditableWarning
           />
         </div>

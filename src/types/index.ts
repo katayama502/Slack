@@ -44,6 +44,8 @@ export interface Message {
   editedAt?: Timestamp;
   mentions?: string[];     // uid[]
   threadCount?: number;
+  lastReplyAt?: Timestamp;
+  threadParticipants?: string[];  // uid[]
   reactions?: Record<string, string[]>; // emoji → uid[]
   channelId?: string;
 }

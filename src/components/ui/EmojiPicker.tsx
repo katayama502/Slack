@@ -184,7 +184,9 @@ export default function EmojiPicker({ onSelect, onClose, style }: EmojiPickerPro
               <button
                 key={emoji}
                 onClick={() => { onSelect(emoji); onClose?.(); }}
-                className="w-9 h-9 flex items-center justify-center rounded text-[20px] hover:bg-[#F8F8F8] transition-colors"
+                className="w-9 h-9 flex items-center justify-center rounded text-[20px]"
+                onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                 title={emoji}
               >
                 {emoji}

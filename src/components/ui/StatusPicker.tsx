@@ -84,8 +84,10 @@ export function StatusPicker({
             style={{ border: '1px solid #DDDDDD' }}
           >
             <button
-              className="text-[20px] w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 flex-shrink-0"
+              className="text-[20px] w-8 h-8 flex items-center justify-center rounded flex-shrink-0"
               title="絵文字"
+              onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
             >
               {emoji || '😊'}
             </button>
@@ -110,7 +112,9 @@ export function StatusPicker({
               <button
                 key={p.text}
                 onClick={() => handlePreset(p)}
-                className="flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-[#F8F8F8] transition-colors text-left"
+                className="flex items-center gap-2.5 px-2 py-1.5 rounded text-left"
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(29,28,29,0.04)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
               >
                 <span className="text-[16px]">{p.emoji}</span>
                 <span className="text-[13px] text-[#1D1C1D]">{p.text}</span>
@@ -141,7 +145,9 @@ export function StatusPicker({
           <div className="flex items-center gap-2 ml-auto">
             <button
               onClick={onClose}
-              className="px-3 py-1.5 text-[13px] text-[#1D1C1D] rounded border border-[#DDDDDD] hover:bg-gray-50"
+              className="px-3 py-1.5 text-[13px] text-[#1D1C1D] rounded border border-[#DDDDDD]"
+              onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
             >
               キャンセル
             </button>

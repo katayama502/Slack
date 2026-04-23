@@ -51,7 +51,10 @@ function MembersPanel({
             <p className="text-[13px] text-[#616061] px-4 py-3">メンバーがいません</p>
           )}
           {memberUsers.map((u) => (
-            <div key={u.uid} className="flex items-center gap-2.5 px-4 py-2 hover:bg-[#F8F8F8] transition-colors">
+            <div key={u.uid} className="flex items-center gap-2.5 px-4 py-2 transition-colors"
+              onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(29,28,29,0.04)'; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+            >
               <div className="relative flex-shrink-0">
                 {u.photoURL ? (
                   <img src={u.photoURL} alt={u.displayName} className="w-8 h-8 rounded object-cover" />
@@ -175,18 +178,19 @@ export default function ChannelHeader({ onMenuClick }: { onMenuClick?: () => voi
                 />
               </div>
             ) : (
-              <span className="text-gray-700 font-bold text-[18px] leading-none flex-shrink-0">#</span>
+              <span className="font-bold text-[18px] leading-none flex-shrink-0" style={{ color: '#1D1C1D' }}>#</span>
             )}
             <div className="min-w-0">
               <h2
-                className={`text-[15px] font-bold text-gray-900 truncate leading-tight ${!isDM ? 'cursor-pointer hover:underline' : ''}`}
+                className={`text-[15px] font-bold truncate leading-tight ${!isDM ? 'cursor-pointer hover:underline' : ''}`}
+                style={{ color: '#1D1C1D' }}
                 onClick={!isDM ? () => setSettingsOpen(true) : undefined}
                 title={!isDM ? 'チャンネル設定' : undefined}
               >
                 {displayName}
               </h2>
               {isDM && dmOtherUser && !dmOtherUser.online && dmOtherUser.lastSeen && (
-                <p className="text-[11px] text-gray-400 leading-tight" title={formatFullDateTime(dmOtherUser.lastSeen)}>
+                <p className="text-[11px] leading-tight" style={{ color: '#616061' }} title={formatFullDateTime(dmOtherUser.lastSeen)}>
                   最終確認: {formatFullDateTime(dmOtherUser.lastSeen)}
                 </p>
               )}
@@ -201,9 +205,9 @@ export default function ChannelHeader({ onMenuClick }: { onMenuClick?: () => voi
             </div>
           </div>
           {!isDM && channel.description && (
-            <div className="flex items-center gap-2 min-w-0 hidden sm:flex">
-              <div className="w-px h-4 bg-gray-300 flex-shrink-0" />
-              <p className="text-[13px] text-gray-500 truncate max-w-xs">{channel.description}</p>
+            <div className="items-center gap-2 min-w-0 hidden sm:flex">
+              <div className="w-px h-4 flex-shrink-0" style={{ background: '#DDDDDD' }} />
+              <p className="text-[13px] truncate max-w-xs" style={{ color: '#616061' }}>{channel.description}</p>
             </div>
           )}
         </div>
@@ -213,8 +217,9 @@ export default function ChannelHeader({ onMenuClick }: { onMenuClick?: () => voi
           {/* Member count — opens panel */}
           <button
             onClick={handleMembersToggle}
-            className="flex items-center gap-1.5 px-2 py-1 rounded transition-colors text-gray-600 press-subtle"
+            className="flex items-center gap-1.5 px-2 py-1 rounded transition-colors press-subtle"
             style={{
+              color: '#616061',
               background: membersOpen ? '#E8E8E8' : 'transparent',
               boxShadow: membersOpen ? 'inset 0 1px 3px rgba(0,0,0,0.08)' : 'none',
               fontWeight: membersOpen ? 600 : undefined,
@@ -228,7 +233,7 @@ export default function ChannelHeader({ onMenuClick }: { onMenuClick?: () => voi
             <span className="text-[13px] font-medium">{memberCount}</span>
           </button>
 
-          <div className="w-px h-5 bg-gray-200 mx-1" />
+          <div className="w-px h-5 mx-1" style={{ background: '#E8E8E8' }} />
 
           {/* Search */}
           {searchOpen ? (
@@ -279,9 +284,10 @@ export default function ChannelHeader({ onMenuClick }: { onMenuClick?: () => voi
             <button
               title="チャンネル内検索 (Ctrl+F)"
               onClick={handleSearchToggle}
-              className="w-8 h-8 flex items-center justify-center rounded text-gray-500 press-subtle"
+              className="w-8 h-8 flex items-center justify-center rounded press-subtle"
+              style={{ color: '#616061' }}
               onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; e.currentTarget.style.color = '#1D1C1D'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = ''; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#616061'; }}
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />

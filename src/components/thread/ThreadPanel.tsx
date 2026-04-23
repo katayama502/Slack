@@ -4,12 +4,13 @@ import { useAppStore } from '../../store/useAppStore';
 import { useThreads } from '../../hooks/useThreads';
 import {
   sendThreadReply,
+  sendMessage,
   toggleReaction,
   toggleThreadReaction,
   updateThreadReply,
   deleteThreadReply,
 } from '../../services';
-import { formatMessageTime, formatFullDateTime } from '../../utils/formatDate';
+import { formatMessageTime, formatFullDateTime, formatRelativeTime } from '../../utils/formatDate';
 import { renderMarkdown } from '../../utils/markdown';
 import { toast } from '../ui/Toast';
 import EmojiPicker from '../ui/EmojiPicker';
@@ -56,6 +57,7 @@ export default function ThreadPanel() {
   const threads = useThreads();
   const [replyText, setReplyText] = useState('');
   const [sending, setSending] = useState(false);
+  const [alsoSendToChannel, setAlsoSendToChannel] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [reactionAnchor, setReactionAnchor] = useState<{ rect: DOMRect; targetId: string; isParent: boolean } | null>(null);
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
@@ -78,7 +80,15 @@ export default function ThreadPanel() {
     setSending(true);
     setReplyText('');
     try {
-      await sendThreadReply(activeChannelId, threadPanelMessageId, trimmed, user);
+      // スレッドの親メッセージ投稿者と既存の参加者に通知
+      const notifyUids = [
+        parentMessage?.uid ?? '',
+        ...(parentMessage?.threadParticipants ?? []),
+      ].filter(Boolean) as string[];
+      await sendThreadReply(activeChannelId, threadPanelMessageId, trimmed, user, notifyUids);
+      if (alsoSendToChannel) {
+        await sendMessage(activeChannelId, trimmed, user, []).catch(() => {});
+      }
     } catch (err) {
       console.error('Thread reply error:', err);
       setReplyText(trimmed);
@@ -88,10 +98,34 @@ export default function ThreadPanel() {
     }
   };
 
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const wrapSelection = (before: string, after: string = before) => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const selected = replyText.slice(start, end);
+    const newText =
+      replyText.slice(0, start) + before + selected + after + replyText.slice(end);
+    setReplyText(newText);
+    setTimeout(() => {
+      el.focus();
+      el.setSelectionRange(start + before.length, start + before.length + selected.length);
+    }, 0);
+  };
+
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
+      return;
+    }
+    if (e.ctrlKey || e.metaKey) {
+      switch (e.key.toLowerCase()) {
+        case 'b': e.preventDefault(); wrapSelection('*'); return;
+        case 'i': e.preventDefault(); wrapSelection('_'); return;
+      }
     }
   };
 
@@ -143,6 +177,7 @@ export default function ThreadPanel() {
   };
 
   const hasText = replyText.trim().length > 0;
+  const [threadInputFocused, setThreadInputFocused] = useState(false);
 
   return (
     <div className="flex flex-col h-full" style={{ background: '#FFFFFF', borderLeft: '1px solid #E8E8E8' }}>
@@ -151,16 +186,21 @@ export default function ThreadPanel() {
         className="flex items-center justify-between px-4 flex-shrink-0"
         style={{ minHeight: '49px', borderBottom: '1px solid #E8E8E8' }}
       >
-        <div className="flex items-center gap-2">
-          <h3 className="font-bold text-[15px]" style={{ color: '#1D1C1D' }}>スレッド</h3>
+        <div className="flex items-center gap-2 min-w-0">
+          <h3 className="font-bold text-[15px] flex-shrink-0" style={{ color: '#1D1C1D' }}>スレッド</h3>
           {channelLabel && (
-            <span className="text-[12px] text-[#616061]">{channelLabel}</span>
+            <span
+              className="text-[12px] px-1.5 py-0.5 rounded flex-shrink-0"
+              style={{ background: '#F0F0F0', color: '#616061' }}
+            >
+              {channelLabel}
+            </span>
           )}
         </div>
         <button
           onClick={closeThreadPanel}
           title="閉じる (Esc)"
-          className="w-8 h-8 flex items-center justify-center rounded press-subtle"
+          className="w-8 h-8 flex items-center justify-center rounded press-subtle flex-shrink-0"
           style={{ color: '#616061' }}
           onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; e.currentTarget.style.color = '#1D1C1D'; }}
           onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#616061'; }}
@@ -178,7 +218,8 @@ export default function ThreadPanel() {
           <div
             className="px-4 py-4 group relative"
             style={{ borderBottom: '1px solid #E8E8E8' }}
-            onMouseLeave={() => setReactionAnchor(null)}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(29,28,29,0.04)'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; setReactionAnchor(null); }}
           >
             <div className="flex gap-3">
               {parentMessage.photoURL ? (
@@ -206,10 +247,10 @@ export default function ThreadPanel() {
                     style={{ color: '#616061' }}
                     title={formatFullDateTime(parentMessage.createdAt)}
                   >
-                    {formatMessageTime(parentMessage.createdAt)}
+                    {formatRelativeTime(parentMessage.createdAt)}
                   </span>
                 </div>
-                <div className="text-[14px] leading-relaxed" style={{ color: '#1D1C1D' }}>
+                <div className="text-[15px]" style={{ color: '#1D1C1D', lineHeight: '1.46875' }}>
                   {renderMarkdown(parentMessage.text)}
                 </div>
                 {/* Reactions on parent */}
@@ -239,18 +280,55 @@ export default function ThreadPanel() {
                 )}
               </div>
             </div>
+            {/* Parent message hover action */}
+            <div
+              className="absolute right-3 top-2 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+              style={{
+                background: '#FFFFFF',
+                border: '1px solid #E0E0E0',
+                borderRadius: '8px',
+                padding: '2px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+              }}
+            >
+              <button
+                onClick={(e) => {
+                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                  setReactionAnchor((a) =>
+                    a?.targetId === parentMessage.id ? null : { rect, targetId: parentMessage.id, isParent: true }
+                  );
+                }}
+                className="w-7 h-7 flex items-center justify-center rounded-md text-[#616061] press-subtle"
+                onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; e.currentTarget.style.color = '#1D1C1D'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#616061'; }}
+                title="リアクションを追加"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.182 15.182a4.5 4.5 0 01-6.364 0M21 12a9 9 0 11-18 0 9 9 0 0118 0zM9.75 9.75c0 .414-.168.75-.375.75S9 10.164 9 9.75 9.168 9 9.375 9s.375.336.375.75zm5.625 0c0 .414-.168.75-.375.75s-.375-.336-.375-.75.168-.75.375-.75.375.336.375.75z" />
+                </svg>
+              </button>
+            </div>
           </div>
         )}
 
-        {/* Reply count */}
-        <div className="px-4 py-2.5">
-          <div className="flex items-center gap-3">
-            <span className="text-[12px] font-semibold" style={{ color: '#616061' }}>
+        {/* Reply count divider */}
+        {threads.length > 0 && (
+          <div className="flex items-center gap-3 px-4 py-3">
+            <hr className="flex-1" style={{ borderColor: '#E8E8E8' }} />
+            <span
+              className="text-[11px] font-bold px-2.5 py-0.5 flex-shrink-0"
+              style={{
+                color: '#616061',
+                border: '1px solid #E0E0E0',
+                borderRadius: '24px',
+                whiteSpace: 'nowrap',
+              }}
+            >
               {threads.length}件の返信
             </span>
             <hr className="flex-1" style={{ borderColor: '#E8E8E8' }} />
           </div>
-        </div>
+        )}
 
         {/* Thread replies */}
         <div className="pb-4">
@@ -261,7 +339,7 @@ export default function ThreadPanel() {
               <div
                 key={thread.id}
                 className="relative flex gap-3 px-4 py-2 transition-colors group"
-                onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = '#F8F8F8'; }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(29,28,29,0.04)'; }}
                 onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; setReactionAnchor(null); }}
               >
                 {thread.photoURL ? (
@@ -281,7 +359,7 @@ export default function ThreadPanel() {
                 )}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-baseline gap-2 mb-0.5">
-                    <span className="font-bold text-[14px]" style={{ color: '#1D1C1D' }}>
+                    <span className="font-bold text-[15px]" style={{ color: '#1D1C1D' }}>
                       {thread.displayName}
                     </span>
                     <span
@@ -305,8 +383,8 @@ export default function ThreadPanel() {
                           if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleEditSave(thread); }
                           if (e.key === 'Escape') setEditingThreadId(null);
                         }}
-                        className="w-full text-[14px] text-[#1D1C1D] resize-none focus:outline-none p-2 rounded"
-                        style={{ border: '1px solid #1D9BD1', boxShadow: '0 0 0 1px #1D9BD1', minHeight: '60px' }}
+                        className="w-full text-[15px] text-[#1D1C1D] resize-none focus:outline-none p-2 rounded"
+                        style={{ border: '1px solid #1D9BD1', boxShadow: '0 0 0 1px #1D9BD1', minHeight: '60px', lineHeight: '1.46875' }}
                         autoFocus
                       />
                       <div className="flex gap-2 mt-1">
@@ -317,12 +395,14 @@ export default function ThreadPanel() {
                         >保存</button>
                         <button
                           onClick={() => setEditingThreadId(null)}
-                          className="px-2 py-1 text-[12px] rounded border border-[#DDDDDD] hover:bg-gray-50"
+                          className="px-2 py-1 text-[12px] rounded border border-[#DDDDDD]"
+                          onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                         >キャンセル</button>
                       </div>
                     </div>
                   ) : (
-                    <div className="text-[14px] leading-relaxed" style={{ color: '#1D1C1D' }}>
+                    <div className="text-[15px]" style={{ color: '#1D1C1D', lineHeight: '1.46875' }}>
                       {renderMarkdown(thread.text)}
                     </div>
                   )}
@@ -428,21 +508,62 @@ export default function ThreadPanel() {
         <div
           className="transition-all"
           style={{
-            border: '1px solid #DDDDDD',
+            border: `1px solid ${hasText ? '#1D1C1D' : threadInputFocused ? '#1D9BD1' : '#DDDDDD'}`,
             borderRadius: '8px',
-            boxShadow: hasText ? '0 0 0 1px #1D1C1D' : undefined,
+            boxShadow: hasText ? '0 0 0 1px #1D1C1D' : threadInputFocused ? '0 0 0 1px #1D9BD1' : 'none',
+            transition: 'border-color 150ms, box-shadow 150ms',
           }}
         >
+          {/* Mini formatting toolbar */}
+          <div className="flex items-center gap-0.5 px-2 pt-1.5" style={{ borderBottom: '1px solid #F0F0F0' }}>
+            {[
+              { title: '太字 (Ctrl+B)', label: 'B', bold: true, action: () => wrapSelection('*') },
+              { title: '斜体 (Ctrl+I)', label: 'I', italic: true, action: () => wrapSelection('_') },
+              { title: '打ち消し線', label: 'S', strike: true, action: () => wrapSelection('~') },
+            ].map(({ title, label, bold, italic, strike, action }) => (
+              <button
+                key={label}
+                title={title}
+                onMouseDown={(e) => { e.preventDefault(); action(); }}
+                className="w-6 h-6 flex items-center justify-center rounded text-[12px] press-subtle"
+                style={{ color: '#616061' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = '#EBEBEB'; e.currentTarget.style.color = '#1D1C1D'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#616061'; }}
+              >
+                <span style={{
+                  fontWeight: bold ? 700 : 400,
+                  fontStyle: italic ? 'italic' : 'normal',
+                  textDecoration: strike ? 'line-through' : 'none',
+                }}>{label}</span>
+              </button>
+            ))}
+            <div className="w-px h-3.5 bg-[#DDDDDD] mx-0.5" />
+            <button
+              title="コード"
+              onMouseDown={(e) => { e.preventDefault(); wrapSelection('`'); }}
+              className="w-6 h-6 flex items-center justify-center rounded press-subtle"
+              style={{ color: '#616061' }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = '#EBEBEB'; e.currentTarget.style.color = '#1D1C1D'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#616061'; }}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25" />
+              </svg>
+            </button>
+          </div>
           <textarea
+            ref={textareaRef}
             value={replyText}
             onChange={(e) => setReplyText(e.target.value)}
             onKeyDown={handleKeyDown}
+            onFocus={() => setThreadInputFocused(true)}
+            onBlur={() => setThreadInputFocused(false)}
             placeholder={`${channelLabel ? channelLabel + ' の' : ''}スレッドに返信...`}
             aria-label="スレッドへの返信を入力"
             rows={2}
             disabled={sending}
-            className="w-full px-3 pt-3 pb-1 text-[14px] resize-none focus:outline-none bg-transparent leading-relaxed placeholder-[#616061]"
-            style={{ color: '#1D1C1D', minHeight: '44px' }}
+            className="w-full px-3 pt-2.5 pb-1 text-[15px] resize-none focus:outline-none bg-transparent placeholder-[#616061]"
+            style={{ color: '#1D1C1D', minHeight: '44px', lineHeight: '1.46875' }}
             onInput={(e) => {
               const el = e.currentTarget;
               el.style.height = 'auto';
@@ -490,10 +611,25 @@ export default function ThreadPanel() {
             </button>
           </div>
         </div>
-        <p className="text-[12px] mt-1 px-1" style={{ color: '#616061' }}>
-          <kbd className="font-mono px-1 rounded" style={{ background: '#F8F8F8', border: '1px solid #DDDDDD' }}>Enter</kbd> で送信・
-          <kbd className="font-mono px-1 rounded" style={{ background: '#F8F8F8', border: '1px solid #DDDDDD' }}>Shift+Enter</kbd> で改行
-        </p>
+        <div className="flex items-center justify-between mt-1 px-1">
+          <p className="text-[12px]" style={{ color: '#616061' }}>
+            <kbd className="font-mono px-1 rounded" style={{ background: '#F8F8F8', border: '1px solid #DDDDDD' }}>Enter</kbd> で送信・
+            <kbd className="font-mono px-1 rounded" style={{ background: '#F8F8F8', border: '1px solid #DDDDDD' }}>Shift+Enter</kbd> で改行
+          </p>
+          {!isDM && (
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={alsoSendToChannel}
+                onChange={(e) => setAlsoSendToChannel(e.target.checked)}
+                className="w-3.5 h-3.5 rounded accent-[#1264A3] cursor-pointer"
+              />
+              <span className="text-[12px]" style={{ color: '#616061' }}>
+                {channelLabel} にも送信
+              </span>
+            </label>
+          )}
+        </div>
       </div>
       {reactionAnchor && (
         <EmojiPickerPortal

@@ -1,7 +1,7 @@
 import { useAppStore } from '../../store/useAppStore';
 import { unsaveMessage } from '../../services';
 import { renderMarkdown } from '../../utils/markdown';
-import { formatMessageTime } from '../../utils/formatDate';
+import { formatRelativeTime } from '../../utils/formatDate';
 import { toast } from '../ui/Toast';
 
 export default function SavedItemsPanel() {
@@ -58,9 +58,10 @@ export default function SavedItemsPanel() {
         </div>
         <button
           onClick={() => setSavedItemsPanelOpen(false)}
-          className="w-8 h-8 flex items-center justify-center rounded text-gray-500 press-subtle"
+          className="w-8 h-8 flex items-center justify-center rounded press-subtle"
+          style={{ color: '#616061' }}
           onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; e.currentTarget.style.color = '#1D1C1D'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = ''; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#616061'; }}
           title="閉じる (Esc)"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -93,8 +94,10 @@ export default function SavedItemsPanel() {
               return (
                 <li key={saved.id} className="group">
                   <div
-                    className="flex items-start gap-3 px-4 py-3 hover:bg-[#F8F8F8] transition-colors"
+                    className="flex items-start gap-3 px-4 py-3 transition-colors"
                     style={{ borderBottom: '1px solid #F0F0F0' }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(29,28,29,0.04)'; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
                   >
                     {/* Avatar */}
                     <div className="flex-shrink-0 mt-0.5">
@@ -128,7 +131,7 @@ export default function SavedItemsPanel() {
                           </span>
                         )}
                         <span className="text-[11px] text-[#9E9EA6] ml-auto">
-                          {formatMessageTime(saved.originalCreatedAt)}
+                          {formatRelativeTime(saved.originalCreatedAt)}
                         </span>
                       </div>
                       <div

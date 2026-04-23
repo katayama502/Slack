@@ -267,9 +267,10 @@ function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' 
     <div
       role="article"
       aria-label={`${message.displayName}のメッセージ`}
-      className={`relative group flex gap-3 hover:bg-[#F8F8F8] transition-colors ${
-        isCompact ? 'px-5 py-0.5' : 'px-5 pt-2 pb-1'
+      className={`relative group flex gap-3 transition-colors ${
+        isCompact ? 'px-5 py-[1px]' : 'px-5 pt-[6px] pb-[2px]'
       }`}
+      style={{ background: showActions ? 'rgba(29,28,29,0.04)' : 'transparent' }}
       onMouseEnter={() => setShowActions(true)}
       onMouseLeave={() => { setShowActions(false); }}
     >
@@ -338,19 +339,24 @@ function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' 
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleEditSave(); }
                 if (e.key === 'Escape') { setEditing(false); setEditText(message.text); }
               }}
-              className="w-full text-[14px] text-[#1D1C1D] resize-none focus:outline-none leading-relaxed"
-              style={{ border: '1px solid #1D9BD1', borderRadius: '6px', padding: '8px 12px', boxShadow: '0 0 0 1px #1D9BD1' }}
+              className="w-full text-[15px] text-[#1D1C1D] resize-none focus:outline-none"
+              style={{ border: '1px solid #1D9BD1', borderRadius: '6px', padding: '8px 12px', boxShadow: '0 0 0 1px #1D9BD1', lineHeight: '1.46875' }}
               rows={2}
               autoFocus
             />
             <div className="flex items-center gap-2 mt-1.5 text-[12px]">
               <span className="text-[#616061]"><kbd className="font-mono">Esc</kbd> でキャンセル・<kbd className="font-mono">Enter</kbd> で保存</span>
               <button onClick={handleEditSave} className="px-3 py-1 rounded text-white text-[13px] font-medium" style={{ background: '#007A5A' }}>保存</button>
-              <button onClick={() => { setEditing(false); setEditText(message.text); }} className="px-3 py-1 rounded text-[#1D1C1D] text-[13px] font-medium border border-[#DDDDDD] hover:bg-gray-50">キャンセル</button>
+              <button
+                onClick={() => { setEditing(false); setEditText(message.text); }}
+                className="px-3 py-1 rounded text-[#1D1C1D] text-[13px] font-medium border border-[#DDDDDD]"
+                onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+              >キャンセル</button>
             </div>
           </div>
         ) : (
-          <div className="text-[14px] text-[#1D1C1D] leading-relaxed">
+          <div className="text-[15px] text-[#1D1C1D]" style={{ lineHeight: '1.46875' }}>
             {searchQuery.trim()
               ? <HighlightText text={message.text} query={searchQuery} />
               : renderMarkdown(message.text)
@@ -362,14 +368,70 @@ function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' 
         )}
 
         {/* Thread reply count */}
-        {(message.threadCount ?? 0) > 0 && !editing && (
-          <button onClick={() => onThreadClick(message.id)} className="mt-1 flex items-center gap-1.5 text-[13px] font-medium hover:underline" style={{ color: '#1264A3' }}>
-            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
-            </svg>
-            {message.threadCount}件の返信
-          </button>
-        )}
+        {(message.threadCount ?? 0) > 0 && !editing && (() => {
+          const participants = (message.threadParticipants ?? []).slice(0, 3);
+          const participantUsers = participants.map((uid) => users.find((u) => u.uid === uid)).filter(Boolean);
+          return (
+            <button
+              onClick={() => onThreadClick(message.id)}
+              className="mt-1.5 flex items-center gap-0 group/thread"
+              style={{ outline: 'none' }}
+            >
+              <span
+                className="flex items-center gap-2 px-2 py-1 rounded-lg transition-all"
+                style={{ border: '1px solid transparent' }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#F0F7FF';
+                  e.currentTarget.style.borderColor = '#C7DCFA';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent';
+                  e.currentTarget.style.borderColor = 'transparent';
+                }}
+              >
+                {/* Participant avatars */}
+                {participantUsers.length > 0 && (
+                  <div className="flex items-center" style={{ marginRight: '2px' }}>
+                    {participantUsers.map((u, i) => (
+                      <div
+                        key={u!.uid}
+                        className="flex-shrink-0"
+                        style={{
+                          width: '20px',
+                          height: '20px',
+                          marginLeft: i > 0 ? '-5px' : '0',
+                          border: '2px solid #FFFFFF',
+                          borderRadius: '4px',
+                          overflow: 'hidden',
+                          zIndex: participantUsers.length - i,
+                        }}
+                      >
+                        {u!.photoURL ? (
+                          <img src={u!.photoURL} alt={u!.displayName} className="w-full h-full object-cover" />
+                        ) : (
+                          <div
+                            className="w-full h-full flex items-center justify-center text-white text-[8px] font-bold"
+                            style={{ background: '#1164A3' }}
+                          >
+                            {u!.displayName[0].toUpperCase()}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <span className="text-[13px] font-semibold" style={{ color: '#1264A3' }}>
+                  {message.threadCount}件の返信
+                </span>
+                {message.lastReplyAt && (
+                  <span className="text-[12px]" style={{ color: '#616061' }}>
+                    最終返信 {formatMessageTime(message.lastReplyAt)}
+                  </span>
+                )}
+              </span>
+            </button>
+          );
+        })()}
 
         {/* Reactions（Firestoreから） */}
         {Object.keys(reactions).length > 0 && (

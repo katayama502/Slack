@@ -67,6 +67,37 @@ function EmptyChannelState({ channelId }: { channelId: string }) {
   const otherUser: User | undefined = isDM
     ? users.find((u) => u.uid !== user?.uid && channel.members?.includes(u.uid))
     : undefined;
+  const isSelfDM = isDM && !otherUser && user;
+  const selfUser: User | undefined = isSelfDM ? users.find((u) => u.uid === user?.uid) : undefined;
+
+  if (isSelfDM) {
+    return (
+      <div className="flex flex-col justify-end px-5 pb-4 pt-8">
+        <div className="flex items-center gap-4 mb-4">
+          {selfUser?.photoURL ? (
+            <img src={selfUser.photoURL} alt={selfUser.displayName} className="w-16 h-16 rounded-lg object-cover" style={{ border: '3px solid #F0F0F0' }} />
+          ) : (
+            <div
+              className="w-16 h-16 rounded-lg flex items-center justify-center text-white text-2xl font-bold"
+              style={{ background: '#1164A3' }}
+            >
+              {(selfUser?.displayName ?? '?')[0].toUpperCase()}
+            </div>
+          )}
+          <div>
+            <h3 className="text-[22px] font-bold text-[#1D1C1D] leading-tight">
+              {selfUser?.displayName ?? 'あなた'} <span className="text-[16px] text-[#616061] font-normal">(自分)</span>
+            </h3>
+            <p className="text-[14px] text-[#007A5A] mt-0.5">アクティブ</p>
+          </div>
+        </div>
+        <p className="text-[15px] text-[#616061] leading-relaxed">
+          これは自分自身へのスペースです。<br />
+          メモ、リンク、ファイルなどを保存するのに使いましょう。
+        </p>
+      </div>
+    );
+  }
 
   if (isDM && otherUser) {
     return (

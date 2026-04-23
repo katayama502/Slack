@@ -1,7 +1,7 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import { subscribeToNotifications, markNotificationRead } from '../../services';
-import { formatMessageTime } from '../../utils/formatDate';
+import { formatRelativeTime } from '../../utils/formatDate';
 
 export default function NotificationsPanel() {
   const { user } = useAppStore((s) => s.auth);
@@ -14,9 +14,34 @@ export default function NotificationsPanel() {
   const setNotificationsPanelOpen = useAppStore((s) => s.setNotificationsPanelOpen);
   const setActiveChannel = useAppStore((s) => s.setActiveChannel);
 
+  const prevNotifIdsRef = useRef<Set<string>>(new Set());
+
   useEffect(() => {
     if (!user) return;
     const unsub = subscribeToNotifications(user.uid, (notifs) => {
+      const prevIds = prevNotifIdsRef.current;
+      const newNotifs = prevIds.size > 0
+        ? notifs.filter((n) => !prevIds.has(n.id) && !n.read)
+        : [];
+
+      if (newNotifs.length > 0) {
+        // Request permission lazily on first notification
+        if (Notification.permission === 'default') {
+          Notification.requestPermission();
+        }
+        // Show browser notifications when window is hidden
+        if (Notification.permission === 'granted' && document.hidden) {
+          newNotifs.forEach((notif) => {
+            const n = new Notification(
+              `${notif.fromDisplayName} があなたをメンションしました`,
+              { body: notif.text.slice(0, 100), icon: '/favicon.ico', tag: notif.id }
+            );
+            n.onclick = () => { window.focus(); };
+          });
+        }
+      }
+
+      prevNotifIdsRef.current = new Set(notifs.map((n) => n.id));
       setNotifications(notifs);
     });
     return () => unsub();
@@ -80,9 +105,10 @@ export default function NotificationsPanel() {
           )}
           <button
             onClick={() => setNotificationsPanelOpen(false)}
-            className="w-8 h-8 flex items-center justify-center rounded text-gray-500 press-subtle"
+            className="w-8 h-8 flex items-center justify-center rounded press-subtle"
+            style={{ color: '#616061' }}
             onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; e.currentTarget.style.color = '#1D1C1D'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = ''; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#616061'; }}
             title="閉じる (Esc)"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -118,8 +144,13 @@ export default function NotificationsPanel() {
                 <li key={notif.id}>
                   <button
                     onClick={() => handleNotifClick(notif.id, notif.channelId, notif.read)}
-                    className="w-full flex items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-[#F8F8F8]"
-                    style={{ borderBottom: '1px solid #F0F0F0', background: notif.read ? 'transparent' : '#F0F7FF' }}
+                    className="w-full flex items-start gap-3 px-4 py-3 text-left transition-colors"
+                    style={{
+                      borderBottom: '1px solid #F0F0F0',
+                      background: notif.read ? 'transparent' : 'rgba(18,100,163,0.07)',
+                    }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = notif.read ? 'rgba(29,28,29,0.04)' : 'rgba(18,100,163,0.12)'; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = notif.read ? 'transparent' : 'rgba(18,100,163,0.07)'; }}
                   >
                     {/* Avatar */}
                     <div className="relative flex-shrink-0 mt-0.5">
@@ -164,7 +195,7 @@ export default function NotificationsPanel() {
                       >
                         {notif.text}
                       </p>
-                      <p className="text-[11px] text-[#9E9EA6] mt-0.5">{formatMessageTime(notif.createdAt)}</p>
+                      <p className="text-[11px] text-[#9E9EA6] mt-0.5">{formatRelativeTime(notif.createdAt)}</p>
                     </div>
                   </button>
                 </li>

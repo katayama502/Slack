@@ -72,9 +72,10 @@ export default function ChannelSettingsModal({ onClose }: { onClose: () => void 
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded text-gray-500 press-subtle"
+            className="w-8 h-8 flex items-center justify-center rounded press-subtle"
+            style={{ color: '#616061' }}
             onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; e.currentTarget.style.color = '#1D1C1D'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = ''; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#616061'; }}
             title="閉じる"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -212,7 +213,12 @@ export default function ChannelSettingsModal({ onClose }: { onClose: () => void 
           {tab === 'members' && (
             <div className="flex flex-col gap-0.5">
               {members.map((member) => (
-                <div key={member.uid} className="flex items-center gap-3 px-2 py-2 rounded hover:bg-[#F8F8F8] transition-colors">
+                <div
+                  key={member.uid}
+                  className="flex items-center gap-3 px-2 py-2 rounded"
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(29,28,29,0.04)'; }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+                >
                   <div className="relative flex-shrink-0">
                     {member.photoURL ? (
                       <img src={member.photoURL} alt={member.displayName} className="w-9 h-9 rounded object-cover" />

@@ -4,6 +4,7 @@ import {
   addDoc,
   updateDoc,
   increment,
+  arrayUnion,
   onSnapshot,
   query,
   orderBy,
@@ -41,9 +42,11 @@ export async function sendThread(
 
   const docRef = await addDoc(threadsRef, data)
 
-  // 親メッセージの threadCount をインクリメント
+  // 親メッセージの threadCount・lastReplyAt・threadParticipants を更新
   await updateDoc(doc(db, 'channels', channelId, 'messages', messageId), {
     threadCount: increment(1),
+    lastReplyAt: serverTimestamp(),
+    threadParticipants: arrayUnion(user.uid),
   })
 
   return { id: docRef.id, ...data } as unknown as Thread
