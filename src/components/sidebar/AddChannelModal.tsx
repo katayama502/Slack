@@ -61,10 +61,11 @@ export default function AddChannelModal({ onClose }: Props) {
           <h2 className="text-[18px] font-bold" style={{ color: '#1D1C1D' }}>チャンネルを作成</h2>
           <button
             onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded press-subtle"
             style={{ color: '#616061' }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = '#F8F8F8'; e.currentTarget.style.color = '#1D1C1D'; }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; e.currentTarget.style.color = '#1D1C1D'; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#616061'; }}
+            title="閉じる"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -135,20 +136,24 @@ export default function AddChannelModal({ onClose }: Props) {
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-[14px] font-medium rounded-lg transition-colors"
-              style={{ color: '#1D1C1D', border: '1.5px solid #DDDDDD' }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = '#F8F8F8'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+              className="px-4 py-2 text-[14px] font-medium rounded-lg press-subtle"
+              style={{ color: '#1D1C1D', border: '1.5px solid #DDDDDD', background: 'transparent' }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; e.currentTarget.style.borderColor = '#BBBBBB'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = '#DDDDDD'; }}
             >
               キャンセル
             </button>
             <button
               type="submit"
               disabled={loading || !name.trim()}
-              className="px-4 py-2 text-[14px] font-bold text-white rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{ background: '#1164A3' }}
-              onMouseEnter={(e) => { if (!loading && name.trim()) e.currentTarget.style.background = '#0D4F8A'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = '#1164A3'; }}
+              className="px-4 py-2 text-[14px] font-bold text-white rounded-lg disabled:cursor-not-allowed press-strong"
+              style={{
+                background: loading || !name.trim() ? '#AAAAAA' : 'linear-gradient(135deg, #1164A3, #1A7AC4)',
+                boxShadow: loading || !name.trim() ? 'none' : '0 2px 8px rgba(17,100,163,0.35)',
+                transition: 'background 200ms, box-shadow 200ms, transform 100ms, opacity 100ms',
+              }}
+              onMouseEnter={(e) => { if (!loading && name.trim()) e.currentTarget.style.background = 'linear-gradient(135deg, #0D4F8A, #1164A3)'; }}
+              onMouseLeave={(e) => { if (!loading && name.trim()) e.currentTarget.style.background = 'linear-gradient(135deg, #1164A3, #1A7AC4)'; }}
             >
               {loading ? '作成中...' : '作成する'}
             </button>

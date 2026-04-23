@@ -85,6 +85,45 @@
 }
 
 /* ============================================================
+   Keyframe animations
+   ============================================================ */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(6px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.92); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* ============================================================
+   Global button press feedback
+   すべての button に押下時の微小スケール + 素早いトランジション
+   ============================================================ */
+@layer base {
+  button {
+    /* 押下時に 96% スケールでフィードバック */
+    transition-property: transform, opacity, background-color, color, border-color, box-shadow;
+    transition-duration: 100ms;
+    transition-timing-function: ease;
+  }
+  button:active:not(:disabled) {
+    transform: scale(0.96);
+    opacity: 0.85;
+  }
+  /* disabled ボタンは押下感を出さない */
+  button:disabled {
+    cursor: not-allowed;
+  }
+}
+
+/* ============================================================
    Utility classes
    ============================================================ */
 @layer utilities {
@@ -93,5 +132,16 @@
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+  }
+
+  /* 押下感を強調したいボタン専用 */
+  .press-strong:active:not(:disabled) {
+    transform: scale(0.93) !important;
+  }
+
+  /* ツールバーなど小さいボタンは控えめに */
+  .press-subtle:active:not(:disabled) {
+    transform: scale(0.97) !important;
+    opacity: 0.9 !important;
   }
 }

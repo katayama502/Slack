@@ -59,8 +59,9 @@ export default function ChannelSettingsModal({ onClose }: { onClose: () => void 
         className="w-full max-w-lg rounded-xl overflow-hidden flex flex-col"
         style={{
           background: '#FFFFFF',
-          boxShadow: '0 16px 48px rgba(0,0,0,0.3)',
+          boxShadow: '0 24px 64px rgba(0,0,0,0.25), 0 0 0 1px rgba(0,0,0,0.06)',
           maxHeight: '80vh',
+          animation: 'popIn 150ms ease',
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -71,7 +72,10 @@ export default function ChannelSettingsModal({ onClose }: { onClose: () => void 
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded text-gray-500 press-subtle"
+            onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; e.currentTarget.style.color = '#1D1C1D'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = ''; }}
+            title="閉じる"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -88,11 +92,15 @@ export default function ChannelSettingsModal({ onClose }: { onClose: () => void 
             <button
               key={t.key}
               onClick={() => setTab(t.key as 'info' | 'members')}
-              className="px-5 py-3 text-[14px] font-medium transition-colors relative"
+              className="px-5 py-3 text-[14px] font-medium relative press-subtle"
               style={{
                 color: tab === t.key ? '#1D1C1D' : '#616061',
                 borderBottom: tab === t.key ? '2px solid #1264A3' : '2px solid transparent',
+                background: 'transparent',
+                transition: 'color 150ms, border-color 150ms, background 100ms',
               }}
+              onMouseEnter={(e) => { if (tab !== t.key) e.currentTarget.style.background = '#F8F8F8'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
             >
               {t.label}
             </button>
@@ -126,14 +134,19 @@ export default function ChannelSettingsModal({ onClose }: { onClose: () => void 
                       <button
                         onClick={handleSaveDescription}
                         disabled={saving}
-                        className="px-3 py-1.5 text-[13px] text-white rounded font-medium"
-                        style={{ background: '#007A5A' }}
+                        className="px-3 py-1.5 text-[13px] text-white rounded-lg font-medium press-subtle"
+                        style={{
+                          background: saving ? '#AAAAAA' : 'linear-gradient(135deg, #007A5A, #009E74)',
+                          boxShadow: saving ? 'none' : '0 2px 6px rgba(0,122,90,0.3)',
+                        }}
                       >
                         {saving ? '保存中...' : '保存'}
                       </button>
                       <button
                         onClick={() => { setEditingDesc(false); setDescription(channel.description ?? ''); }}
-                        className="px-3 py-1.5 text-[13px] rounded border border-[#DDDDDD] hover:bg-gray-50"
+                        className="px-3 py-1.5 text-[13px] rounded-lg border border-[#DDDDDD] press-subtle"
+                        onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                       >
                         キャンセル
                       </button>
@@ -181,7 +194,10 @@ export default function ChannelSettingsModal({ onClose }: { onClose: () => void 
                 <div style={{ borderTop: '1px solid #EEEEEE', paddingTop: '16px' }}>
                   <button
                     onClick={handleLeave}
-                    className="flex items-center gap-2 text-[14px] text-[#E01E5A] hover:bg-red-50 px-3 py-2 rounded transition-colors"
+                    className="flex items-center gap-2 text-[14px] text-[#E01E5A] px-3 py-2 rounded-lg press-subtle"
+                    style={{ background: 'transparent' }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = '#FFF0F3'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />

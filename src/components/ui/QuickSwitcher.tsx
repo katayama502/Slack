@@ -100,12 +100,16 @@ export default function QuickSwitcher({ onClose }: QuickSwitcherProps) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh] px-4"
-      style={{ background: 'rgba(0,0,0,0.6)' }}
+      style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)' }}
       onClick={onClose}
     >
       <div
         className="w-full max-w-lg rounded-xl overflow-hidden"
-        style={{ background: '#FFFFFF', boxShadow: '0 16px 48px rgba(0,0,0,0.35)' }}
+        style={{
+          background: '#FFFFFF',
+          boxShadow: '0 24px 64px rgba(0,0,0,0.3), 0 0 0 1px rgba(0,0,0,0.06)',
+          animation: 'popIn 150ms ease',
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Search input */}
@@ -149,13 +153,16 @@ export default function QuickSwitcher({ onClose }: QuickSwitcherProps) {
                 <li key={ch.id}>
                   <button
                     onClick={() => handleSelect({ type: 'channel', id: ch.id, name: ch.name })}
-                    className="w-full flex items-center gap-3 px-4 py-2 text-left transition-colors"
-                    style={{ background: isSelected ? '#F0F0F0' : 'transparent' }}
+                    className="w-full flex items-center gap-3 px-4 py-2 text-left press-subtle"
+                    style={{
+                      background: isSelected ? '#EBF5FF' : 'transparent',
+                      borderLeft: isSelected ? '2px solid #1164A3' : '2px solid transparent',
+                    }}
                     onMouseEnter={() => setSelectedIndex(idx)}
                   >
                     <span
                       className="w-8 h-8 flex items-center justify-center rounded text-[#616061] flex-shrink-0 text-[16px] font-bold"
-                      style={{ background: '#F8F8F8', border: '1px solid #EEEEEE' }}
+                      style={{ background: isSelected ? '#DBEAFE' : '#F8F8F8', border: '1px solid #EEEEEE' }}
                     >#</span>
                     <span className="text-[14px] text-[#1D1C1D] font-medium">{ch.name}</span>
                   </button>
@@ -176,8 +183,11 @@ export default function QuickSwitcher({ onClose }: QuickSwitcherProps) {
                 <li key={u.uid}>
                   <button
                     onClick={() => handleSelect({ type: 'user', id: u.uid, name: u.displayName, photoURL: u.photoURL, online: u.online })}
-                    className="w-full flex items-center gap-3 px-4 py-2 text-left transition-colors"
-                    style={{ background: isSelected ? '#F0F0F0' : 'transparent' }}
+                    className="w-full flex items-center gap-3 px-4 py-2 text-left press-subtle"
+                    style={{
+                      background: isSelected ? '#EBF5FF' : 'transparent',
+                      borderLeft: isSelected ? '2px solid #1164A3' : '2px solid transparent',
+                    }}
                     onMouseEnter={() => setSelectedIndex(idx)}
                   >
                     <div className="relative flex-shrink-0">

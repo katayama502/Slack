@@ -159,10 +159,10 @@ export default function ThreadPanel() {
         </div>
         <button
           onClick={closeThreadPanel}
-          title="閉じる"
-          className="w-8 h-8 flex items-center justify-center rounded transition-colors"
+          title="閉じる (Esc)"
+          className="w-8 h-8 flex items-center justify-center rounded press-subtle"
           style={{ color: '#616061' }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = '#F8F8F8'; e.currentTarget.style.color = '#1D1C1D'; }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; e.currentTarget.style.color = '#1D1C1D'; }}
           onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#616061'; }}
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -221,16 +221,17 @@ export default function ThreadPanel() {
                           key={emoji}
                           onClick={() => handleReaction(parentMessage.id, emoji, true)}
                           title={uids.map((uid) => users.find((u) => u.uid === uid)?.displayName ?? uid).join(', ')}
-                          className="flex items-center gap-0.5 text-[12px] px-1.5 py-0.5 transition-colors"
+                          className="flex items-center gap-0.5 text-[12px] px-1.5 py-0.5 press-subtle"
                           style={{
                             borderRadius: '24px',
-                            border: user && uids.includes(user.uid) ? '1px solid #1264A3' : '1px solid #DDDDDD',
-                            background: user && uids.includes(user.uid) ? '#E8F5FA' : '#F8F8F8',
+                            border: user && uids.includes(user.uid) ? '1.5px solid #1264A3' : '1px solid #DDDDDD',
+                            background: user && uids.includes(user.uid) ? 'rgba(18,100,163,0.1)' : '#F4F4F4',
                             color: user && uids.includes(user.uid) ? '#1264A3' : '#616061',
+                            fontWeight: user && uids.includes(user.uid) ? 600 : 400,
                           }}
                         >
                           <span>{emoji}</span>
-                          <span className="font-medium ml-0.5">{uids.length}</span>
+                          <span className="font-semibold ml-0.5">{uids.length}</span>
                         </button>
                       ) : null
                     )}
@@ -335,16 +336,17 @@ export default function ThreadPanel() {
                             key={emoji}
                             onClick={() => handleReaction(thread.id, emoji)}
                             title={uids.map((uid) => users.find((u) => u.uid === uid)?.displayName ?? uid).join(', ')}
-                            className="flex items-center gap-0.5 text-[12px] px-1.5 py-0.5 transition-colors"
+                            className="flex items-center gap-0.5 text-[12px] px-1.5 py-0.5 press-subtle"
                             style={{
                               borderRadius: '24px',
-                              border: user && uids.includes(user.uid) ? '1px solid #1264A3' : '1px solid #DDDDDD',
-                              background: user && uids.includes(user.uid) ? '#E8F5FA' : '#F8F8F8',
+                              border: user && uids.includes(user.uid) ? '1.5px solid #1264A3' : '1px solid #DDDDDD',
+                              background: user && uids.includes(user.uid) ? 'rgba(18,100,163,0.1)' : '#F4F4F4',
                               color: user && uids.includes(user.uid) ? '#1264A3' : '#616061',
+                              fontWeight: user && uids.includes(user.uid) ? 600 : 400,
                             }}
                           >
                             <span>{emoji}</span>
-                            <span className="font-medium ml-0.5">{uids.length}</span>
+                            <span className="font-semibold ml-0.5">{uids.length}</span>
                           </button>
                         ) : null
                       )}
@@ -355,8 +357,14 @@ export default function ThreadPanel() {
                 {/* Action toolbar */}
                 {!isEditing && (
                   <div
-                    className="absolute right-3 top-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                    style={{ background: '#FFFFFF', border: '1px solid #DDDDDD', borderRadius: '6px', padding: '2px', boxShadow: '0 1px 4px rgba(0,0,0,0.1)' }}
+                    className="absolute right-3 top-1 flex items-center gap-px opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+                    style={{
+                      background: '#FFFFFF',
+                      border: '1px solid #E0E0E0',
+                      borderRadius: '8px',
+                      padding: '2px',
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.1), 0 0 0 1px rgba(0,0,0,0.03)',
+                    }}
                   >
                     {/* Reaction */}
                     <button
@@ -366,7 +374,9 @@ export default function ThreadPanel() {
                           a?.targetId === thread.id ? null : { rect, targetId: thread.id, isParent: false }
                         );
                       }}
-                      className="w-7 h-7 flex items-center justify-center rounded text-[#616061] hover:text-[#1D1C1D] hover:bg-[#F8F8F8] transition-colors"
+                      className="w-7 h-7 flex items-center justify-center rounded-md text-[#616061] press-subtle"
+                      onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; e.currentTarget.style.color = '#1D1C1D'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#616061'; }}
                       title="リアクション"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
@@ -378,7 +388,9 @@ export default function ThreadPanel() {
                     {isOwner && (
                       <button
                         onClick={() => handleEditStart(thread)}
-                        className="w-7 h-7 flex items-center justify-center rounded text-[#616061] hover:text-[#1D1C1D] hover:bg-[#F8F8F8] transition-colors"
+                        className="w-7 h-7 flex items-center justify-center rounded-md text-[#616061] press-subtle"
+                        onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; e.currentTarget.style.color = '#1D1C1D'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#616061'; }}
                         title="編集"
                       >
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
@@ -391,7 +403,9 @@ export default function ThreadPanel() {
                     {isOwner && (
                       <button
                         onClick={() => handleDelete(thread.id)}
-                        className="w-7 h-7 flex items-center justify-center rounded text-[#616061] hover:text-red-600 hover:bg-red-50 transition-colors"
+                        className="w-7 h-7 flex items-center justify-center rounded-md text-[#616061] press-subtle"
+                        onMouseEnter={(e) => { e.currentTarget.style.background = '#FFF0F0'; e.currentTarget.style.color = '#E01E5A'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#616061'; }}
                         title="削除"
                       >
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
@@ -460,12 +474,14 @@ export default function ThreadPanel() {
             <button
               onClick={handleSend}
               disabled={!hasText || sending}
-              title="送信 (Enter)"
-              className="w-8 h-8 flex items-center justify-center rounded transition-colors"
+              title={hasText ? '送信 (Enter)' : 'テキストを入力してください'}
+              className="w-8 h-8 flex items-center justify-center rounded-lg press-strong"
               style={{
-                background: hasText && !sending ? '#007A5A' : '#DDDDDD',
-                color: hasText && !sending ? '#FFFFFF' : '#999999',
+                background: hasText && !sending ? 'linear-gradient(135deg, #007A5A, #009E74)' : '#E8E8E8',
+                color: hasText && !sending ? '#FFFFFF' : '#AAAAAA',
                 cursor: hasText && !sending ? 'pointer' : 'not-allowed',
+                boxShadow: hasText && !sending ? '0 2px 6px rgba(0,122,90,0.35)' : 'none',
+                transition: 'background 200ms, box-shadow 200ms, transform 100ms, opacity 100ms',
               }}
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">

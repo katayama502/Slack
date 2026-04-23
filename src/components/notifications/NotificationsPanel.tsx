@@ -70,15 +70,20 @@ export default function NotificationsPanel() {
           {unreadCount > 0 && (
             <button
               onClick={handleMarkAllRead}
-              className="text-[12px] text-[#1264A3] hover:underline px-2 py-1 rounded hover:bg-[#F0F8FF] transition-colors"
+              className="text-[12px] text-[#1264A3] px-2 py-1 rounded font-medium press-subtle"
+              style={{ background: 'transparent', transition: 'background 120ms' }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = '#EBF5FF'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
             >
               すべて既読
             </button>
           )}
           <button
             onClick={() => setNotificationsPanelOpen(false)}
-            className="w-8 h-8 flex items-center justify-center rounded text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
-            title="閉じる"
+            className="w-8 h-8 flex items-center justify-center rounded text-gray-500 press-subtle"
+            onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; e.currentTarget.style.color = '#1D1C1D'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = ''; }}
+            title="閉じる (Esc)"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />

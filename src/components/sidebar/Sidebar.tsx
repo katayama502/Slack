@@ -335,9 +335,17 @@ export default function Sidebar() {
               {/* 自分 */}
               <li>
                 <button
-                  className="flex items-center gap-2 py-[5px] pl-3 pr-3 text-[#CFC3CF] hover:text-white hover:bg-white/10 transition-colors text-[14px]"
-                  style={{ width: 'calc(100% - 8px)', margin: '0 4px', borderRadius: '4px' }}
-                  disabled
+                  onClick={() => user && handleOpenDM({ uid: user.uid, displayName: currentUser?.displayName ?? 'あなた', email: currentUser?.email ?? '', photoURL: currentUser?.photoURL ?? null, online: true } as any)}
+                  className="flex items-center gap-2 py-[5px] pl-3 pr-3 transition-colors text-[14px]"
+                  style={{
+                    width: 'calc(100% - 8px)',
+                    margin: '0 4px',
+                    borderRadius: '4px',
+                    color: '#CFC3CF',
+                    background: 'transparent',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = '#FFFFFF'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#CFC3CF'; }}
                 >
                   <div className="relative flex-shrink-0">
                     {currentUser?.photoURL ? (
@@ -349,7 +357,7 @@ export default function Sidebar() {
                     )}
                     <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#007A5A]" style={{ border: '1.5px solid #3F0E40' }} />
                   </div>
-                  <span className="truncate">{currentUser?.displayName ?? 'あなた'} <span className="text-[#CFC3CF]/60 text-[12px]">(自分)</span></span>
+                  <span className="truncate flex-1 text-left">{currentUser?.displayName ?? 'あなた'} <span className="text-[#CFC3CF]/60 text-[12px]">(自分)</span></span>
                 </button>
               </li>
 

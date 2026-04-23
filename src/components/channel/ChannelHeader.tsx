@@ -153,9 +153,9 @@ export default function ChannelHeader({ onMenuClick }: { onMenuClick?: () => voi
           {onMenuClick && (
             <button
               onClick={onMenuClick}
-              className="flex md:hidden w-8 h-8 items-center justify-center rounded flex-shrink-0 transition-colors"
+              className="flex md:hidden w-8 h-8 items-center justify-center rounded flex-shrink-0 press-subtle"
               style={{ color: '#616061' }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = '#F8F8F8'; }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -213,8 +213,14 @@ export default function ChannelHeader({ onMenuClick }: { onMenuClick?: () => voi
           {/* Member count — opens panel */}
           <button
             onClick={handleMembersToggle}
-            className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-gray-100 transition-colors text-gray-600"
-            style={{ background: membersOpen ? '#F0F0F0' : undefined }}
+            className="flex items-center gap-1.5 px-2 py-1 rounded transition-colors text-gray-600 press-subtle"
+            style={{
+              background: membersOpen ? '#E8E8E8' : 'transparent',
+              boxShadow: membersOpen ? 'inset 0 1px 3px rgba(0,0,0,0.08)' : 'none',
+              fontWeight: membersOpen ? 600 : undefined,
+            }}
+            onMouseEnter={(e) => { if (!membersOpen) e.currentTarget.style.background = '#F0F0F0'; }}
+            onMouseLeave={(e) => { if (!membersOpen) e.currentTarget.style.background = 'transparent'; }}
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
@@ -226,8 +232,17 @@ export default function ChannelHeader({ onMenuClick }: { onMenuClick?: () => voi
 
           {/* Search */}
           {searchOpen ? (
-            <div className="flex items-center gap-1" style={{ border: '1px solid #1D9BD1', borderRadius: '6px', padding: '2px 8px', boxShadow: '0 0 0 1px #1D9BD1' }}>
-              <svg className="w-3.5 h-3.5 text-[#616061] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <div
+              className="flex items-center gap-1"
+              style={{
+                border: '1px solid #1D9BD1',
+                borderRadius: '6px',
+                padding: '3px 8px',
+                boxShadow: '0 0 0 2px rgba(29,155,209,0.25)',
+                background: '#FFFFFF',
+              }}
+            >
+              <svg className="w-3.5 h-3.5 text-[#1D9BD1] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
               </svg>
               <input
@@ -236,20 +251,38 @@ export default function ChannelHeader({ onMenuClick }: { onMenuClick?: () => voi
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Escape') { setSearchOpen(false); setSearchQuery(''); } }}
-                placeholder="メッセージを検索"
-                className="text-[13px] text-[#1D1C1D] focus:outline-none bg-transparent w-40"
+                placeholder="メッセージを検索..."
+                className="text-[13px] text-[#1D1C1D] focus:outline-none bg-transparent w-44"
               />
               {searchQuery && (
-                <button onClick={() => setSearchQuery('')} className="text-[#616061] hover:text-[#1D1C1D] flex-shrink-0">
-                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="text-[#616061] hover:text-[#1D1C1D] flex-shrink-0 press-subtle"
+                  title="クリア"
+                >
+                  <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
                   </svg>
                 </button>
               )}
-              <button onClick={handleSearchToggle} className="text-[#616061] hover:text-[#1D1C1D] flex-shrink-0 text-[16px] leading-none ml-0.5">&times;</button>
+              <button
+                onClick={handleSearchToggle}
+                className="text-[#616061] hover:text-[#E01E5A] flex-shrink-0 press-subtle ml-0.5"
+                title="検索を閉じる"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
             </div>
           ) : (
-            <button title="検索 (Ctrl+F)" onClick={handleSearchToggle} className="w-8 h-8 flex items-center justify-center rounded text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors">
+            <button
+              title="チャンネル内検索 (Ctrl+F)"
+              onClick={handleSearchToggle}
+              className="w-8 h-8 flex items-center justify-center rounded text-gray-500 press-subtle"
+              onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; e.currentTarget.style.color = '#1D1C1D'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = ''; }}
+            >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
               </svg>
@@ -259,18 +292,20 @@ export default function ChannelHeader({ onMenuClick }: { onMenuClick?: () => voi
           {/* Info — opens members panel */}
           <button
             ref={infoButtonRef}
-            title="チャンネル詳細"
+            title="メンバー一覧"
             onClick={handleMembersToggle}
-            className="w-8 h-8 flex items-center justify-center rounded transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded press-subtle"
             style={{
               color: membersOpen ? '#1D1C1D' : '#616061',
-              background: membersOpen ? '#E8E8E8' : 'transparent',
+              background: membersOpen ? '#E0E0E0' : 'transparent',
+              boxShadow: membersOpen ? 'inset 0 1px 3px rgba(0,0,0,0.1)' : 'none',
+              transition: 'background 120ms, color 120ms, box-shadow 120ms, transform 80ms, opacity 80ms',
             }}
-            onMouseEnter={(e) => { if (!membersOpen) { e.currentTarget.style.background = '#F8F8F8'; e.currentTarget.style.color = '#1D1C1D'; } }}
+            onMouseEnter={(e) => { if (!membersOpen) { e.currentTarget.style.background = '#F0F0F0'; e.currentTarget.style.color = '#1D1C1D'; } }}
             onMouseLeave={(e) => { if (!membersOpen) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#616061'; } }}
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
             </svg>
           </button>
 
@@ -279,7 +314,9 @@ export default function ChannelHeader({ onMenuClick }: { onMenuClick?: () => voi
             <button
               title="チャンネル設定"
               onClick={() => setSettingsOpen(true)}
-              className="w-8 h-8 flex items-center justify-center rounded text-[#616061] hover:bg-[#F8F8F8] hover:text-[#1D1C1D] transition-colors"
+              className="w-8 h-8 flex items-center justify-center rounded text-[#616061] press-subtle"
+              onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; e.currentTarget.style.color = '#1D1C1D'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#616061'; }}
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />

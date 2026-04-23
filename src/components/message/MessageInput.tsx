@@ -116,14 +116,26 @@ function ToolBtn({
       aria-pressed={active}
       onClick={onClick}
       onMouseDown={onMouseDown}
-      className="w-7 h-7 flex items-center justify-center rounded transition-colors flex-shrink-0"
+      className="w-7 h-7 flex items-center justify-center rounded flex-shrink-0 press-subtle"
       style={{
         color: active ? '#1D1C1D' : '#616061',
-        background: active ? '#E8E8E8' : 'transparent',
+        background: active ? '#D4D4D4' : 'transparent',
         fontWeight: active ? 700 : undefined,
+        boxShadow: active ? 'inset 0 1px 3px rgba(0,0,0,0.12)' : 'none',
+        transition: 'background 120ms ease, color 120ms ease, box-shadow 120ms ease, transform 80ms ease, opacity 80ms ease',
       }}
-      onMouseEnter={(e) => { if (!active) { e.currentTarget.style.background = '#F0F0F0'; e.currentTarget.style.color = '#1D1C1D'; } }}
-      onMouseLeave={(e) => { if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#616061'; } }}
+      onMouseEnter={(e) => {
+        if (!active) {
+          e.currentTarget.style.background = '#EBEBEB';
+          e.currentTarget.style.color = '#1D1C1D';
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!active) {
+          e.currentTarget.style.background = 'transparent';
+          e.currentTarget.style.color = '#616061';
+        }
+      }}
     >
       {children}
     </button>
@@ -156,7 +168,7 @@ export default function MessageInput() {
   const lastSentAtRef = useRef<number>(0);  // rate limiting
 
   // Active format states (updated on selectionchange)
-  const [fmt, setFmt] = useState({ bold: false, italic: false, underline: false, strike: false });
+  const [fmt, setFmt] = useState({ bold: false, italic: false, underline: false, strike: false, ol: false, ul: false, blockquote: false });
 
   // Link popup
   const [linkPopupOpen, setLinkPopupOpen] = useState(false);
@@ -206,6 +218,9 @@ export default function MessageInput() {
         italic: document.queryCommandState('italic'),
         underline: document.queryCommandState('underline'),
         strike: document.queryCommandState('strikeThrough'),
+        ol: isInsideTag('ol', el),
+        ul: isInsideTag('ul', el),
+        blockquote: isInsideTag('blockquote', el),
       });
     };
     document.addEventListener('selectionchange', update);
@@ -699,13 +714,13 @@ export default function MessageInput() {
             <div className="w-px h-4 bg-[#DDDDDD] mx-0.5 flex-shrink-0" />
 
             {/* Ordered list */}
-            <ToolBtn title="番号付きリスト" onMouseDown={(e) => { e.preventDefault(); exec('insertOrderedList'); }}>
+            <ToolBtn title="番号付きリスト" active={fmt.ol} onMouseDown={(e) => { e.preventDefault(); exec('insertOrderedList'); }}>
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6l1.5-.75v5.25M3 16.5h1.5M3 18.75h1.5c0-.75.75-.75.75-1.5s-.75-1.5-.75-1.5" />
               </svg>
             </ToolBtn>
             {/* Bullet list */}
-            <ToolBtn title="箇条書き" onMouseDown={(e) => { e.preventDefault(); exec('insertUnorderedList'); }}>
+            <ToolBtn title="箇条書き" active={fmt.ul} onMouseDown={(e) => { e.preventDefault(); exec('insertUnorderedList'); }}>
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
               </svg>
@@ -714,7 +729,7 @@ export default function MessageInput() {
             <div className="w-px h-4 bg-[#DDDDDD] mx-0.5 flex-shrink-0" />
 
             {/* Blockquote */}
-            <ToolBtn title="引用" onMouseDown={handleBlockquote}>
+            <ToolBtn title="引用" active={fmt.blockquote} onMouseDown={handleBlockquote}>
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h11M3 14h7m-7-8h16" />
               </svg>
@@ -844,12 +859,14 @@ export default function MessageInput() {
           <button
             onClick={handleSend}
             disabled={!canSend}
-            title="送信 (Enter)"
-            className="w-8 h-8 flex items-center justify-center rounded transition-colors flex-shrink-0"
+            title={canSend ? '送信 (Enter)' : 'メッセージを入力してください'}
+            className="w-8 h-8 flex items-center justify-center rounded-lg flex-shrink-0 press-strong"
             style={{
-              background: canSend ? '#007A5A' : '#DDDDDD',
-              color: canSend ? '#FFFFFF' : '#999999',
+              background: canSend ? 'linear-gradient(135deg, #007A5A, #009E74)' : '#E8E8E8',
+              color: canSend ? '#FFFFFF' : '#AAAAAA',
               cursor: canSend ? 'pointer' : 'not-allowed',
+              boxShadow: canSend ? '0 2px 6px rgba(0,122,90,0.35)' : 'none',
+              transition: 'background 200ms, box-shadow 200ms, transform 100ms, opacity 100ms',
             }}
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">

@@ -300,8 +300,12 @@ export default function MessageList() {
     {showJumpBtn && (
       <button
         onClick={scrollToBottom}
-        className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[13px] font-medium text-white shadow-lg transition-all z-10"
-        style={{ background: '#1164A3' }}
+        className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-4 py-2 rounded-full text-[13px] font-semibold text-white z-10 press-strong"
+        style={{
+          background: 'linear-gradient(135deg, #1164A3, #1A7AC4)',
+          boxShadow: '0 4px 16px rgba(17,100,163,0.4), 0 1px 4px rgba(0,0,0,0.15)',
+          animation: 'fadeIn 200ms ease',
+        }}
       >
         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
