@@ -114,6 +114,11 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isAuthenticated();
       allow write: if isOwner(userId);
+
+      // 保存済みメッセージ（自分のみ読み書き可）
+      match /saved/{savedId} {
+        allow read, write: if isOwner(userId);
+      }
     }
 
     // ─────────────────────────────────────────────

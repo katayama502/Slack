@@ -447,6 +447,8 @@ export function subscribeToNotifications(
       ...(d.data() as Omit<Notification, 'id'>),
     }));
     callback(notifications);
+  }, (err) => {
+    console.error('[subscribeToNotifications]', err);
   });
 }
 
@@ -562,6 +564,8 @@ export function subscribeSavedMessages(
       ...(d.data() as Omit<SavedMessage, 'id'>),
     }));
     callback(messages);
+  }, (err) => {
+    console.error('[subscribeSavedMessages]', err);
   });
 }
 
