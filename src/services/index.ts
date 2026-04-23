@@ -225,6 +225,8 @@ export function subscribeToChannels(callback: (channels: Channel[]) => void) {
       ...(d.data() as Omit<Channel, 'id'>),
     }));
     callback(channels);
+  }, (err) => {
+    console.error('[subscribeToChannels]', err);
   });
 }
 

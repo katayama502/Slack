@@ -19,14 +19,20 @@ export function markChannelRead(channelId: string): void {
  */
 export function useUnreadChannels(): Set<string> {
   const channels = useAppStore((s) => s.channels);
+  const { user } = useAppStore((s) => s.auth);
   const [unread, setUnread] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    if (channels.length === 0) return;
+    if (channels.length === 0 || !user) return;
 
     const unsubscribers: (() => void)[] = [];
 
-    channels.forEach((channel) => {
+    // 自分がメンバーのチャンネルのみ購読（非メンバーはpermission-deniedになるため）
+    const memberChannels = channels.filter(
+      (ch) => Array.isArray(ch.members) && ch.members.includes(user.uid)
+    );
+
+    memberChannels.forEach((channel) => {
       const unsub = subscribeToLatestMessage(channel.id, (msg) => {
         if (!msg?.createdAt) return;
         const msgTime = msg.createdAt.toMillis();
@@ -47,7 +53,7 @@ export function useUnreadChannels(): Set<string> {
     });
 
     return () => unsubscribers.forEach((u) => u());
-  }, [channels]);
+  }, [channels, user]);
 
   // アクティブチャンネル切替時に既読にする
   useEffect(() => {

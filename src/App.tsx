@@ -38,11 +38,12 @@ export default function App() {
   const setUsers = useAppStore((s) => s.setUsers);
   const { user, loading } = useAppStore((s) => s.auth);
 
-  // ── 全ユーザーを一か所でサブスクライブ（重複リスナーを防ぐ） ────────────────
+  // ── 全ユーザーを一か所でサブスクライブ（認証後のみ・重複リスナーを防ぐ） ──
   useEffect(() => {
+    if (!user) return;
     const unsub = subscribeToUsers((u) => setUsers(u));
     return () => unsub();
-  }, [setUsers]);
+  }, [user?.uid, setUsers]);
 
   // ── 認証状態の監視 ────────────────────────────────────────────────────────
   useEffect(() => {
