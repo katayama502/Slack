@@ -3,6 +3,39 @@ import { useNavigate } from 'react-router-dom';
 import { signInWithGoogle, signInWithEmail, signUpWithEmail } from '../services';
 import { useAppStore } from '../store/useAppStore';
 
+function getAuthErrorMessage(err: unknown): string {
+  const code = (err as any)?.code as string | undefined;
+  switch (code) {
+    case 'auth/popup-closed-by-user':
+    case 'auth/cancelled-popup-request':
+      return 'ポップアップが閉じられました。もう一度お試しください。';
+    case 'auth/popup-blocked':
+      return 'ポップアップがブロックされました。ブラウザの設定でポップアップを許可してください。';
+    case 'auth/unauthorized-domain':
+      return 'このドメインはFirebaseに認証されていません。管理者にお問い合わせください。';
+    case 'auth/user-disabled':
+      return 'このアカウントは無効化されています。';
+    case 'auth/account-exists-with-different-credential':
+      return 'このメールアドレスは別の方法で登録されています。';
+    case 'auth/user-not-found':
+    case 'auth/wrong-password':
+    case 'auth/invalid-credential':
+      return 'メールアドレスまたはパスワードが正しくありません。';
+    case 'auth/email-already-in-use':
+      return 'このメールアドレスはすでに使用されています。';
+    case 'auth/weak-password':
+      return 'パスワードは6文字以上で入力してください。';
+    case 'auth/invalid-email':
+      return 'メールアドレスの形式が正しくありません。';
+    case 'auth/network-request-failed':
+      return 'ネットワークエラーが発生しました。接続を確認してください。';
+    case 'auth/too-many-requests':
+      return 'しばらく時間をおいてから再度お試しください。';
+    default:
+      return err instanceof Error ? err.message : 'ログインに失敗しました。';
+  }
+}
+
 export default function LoginPage() {
   const [showEmailForm, setShowEmailForm] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
@@ -19,12 +52,13 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await signInWithGoogle();
+      // リダイレクト方式の場合はページが遷移するためここには到達しない
+      // ポップアップ成功時はonAuthStateChangedがApp.tsxでuserをセットし自動でworkspaceへ
       navigate('/workspace');
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'ログインに失敗しました';
+      const msg = getAuthErrorMessage(err);
       setError(msg);
       setAuthError(msg);
-    } finally {
       setLoading(false);
     }
   };
@@ -41,7 +75,7 @@ export default function LoginPage() {
       }
       navigate('/workspace');
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'ログインに失敗しました';
+      const msg = getAuthErrorMessage(err);
       setError(msg);
     } finally {
       setLoading(false);

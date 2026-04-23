@@ -64,17 +64,22 @@ export function subscribeToAuthState(callback: (user: User | null) => void) {
 
 export async function signInWithGoogle(): Promise<void> {
   const provider = new GoogleAuthProvider();
+  provider.addScope('email');
+  provider.addScope('profile');
   try {
     await signInWithPopup(auth, provider);
   } catch (err: any) {
-    // ポップアップがブロックされた場合・サードパーティCookie制限環境（Safari等）では
-    // リダイレクト方式にフォールバックする
     const code = err?.code as string | undefined;
+    // ユーザーが自分でポップアップを閉じた場合はエラーとして伝える
+    if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+      throw err;
+    }
+    // ポップアップがブロックされた場合・Safari等のサードパーティCookie制限環境では
+    // リダイレクト方式にフォールバックする
     if (
       code === 'auth/popup-blocked' ||
-      code === 'auth/popup-closed-by-user' ||
       code === 'auth/internal-error' ||
-      code === 'auth/cancelled-popup-request'
+      code === 'auth/web-storage-unsupported'
     ) {
       await signInWithRedirect(auth, provider);
       return;
