@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -219,50 +219,105 @@ function renderInline(text: string): React.ReactNode[] {
   return nodes.length > 0 ? nodes : [text];
 }
 
+// ─── Code block with copy button ─────────────────────────────────────────────
+
+function CodeBlock({ lang, lines, index }: { lang: string; lines: string[]; index: number }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {}
+  };
+
+  return (
+    <div key={index} className="relative group/code" style={{ margin: '4px 0' }}>
+      <pre
+        style={{
+          fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace',
+          fontSize: '12.5px',
+          lineHeight: 1.55,
+          background: 'rgba(29,28,29,0.04)',
+          border: '1px solid rgba(29,28,29,0.13)',
+          borderRadius: '4px',
+          padding: '8px 12px',
+          paddingRight: '64px',
+          overflowX: 'auto',
+          whiteSpace: 'pre',
+          wordBreak: 'normal',
+          color: '#1D1C1D',
+          maxWidth: '100%',
+        }}
+      >
+        {lang && (
+          <span
+            style={{
+              display: 'block',
+              fontSize: '11px',
+              color: '#9E9EA6',
+              marginBottom: '6px',
+              fontFamily: 'inherit',
+              letterSpacing: '0.3px',
+            }}
+          >
+            {lang}
+          </span>
+        )}
+        <code style={{ fontFamily: 'inherit', color: 'inherit', background: 'none', border: 'none', padding: 0, fontSize: 'inherit', borderRadius: 0 }}>
+          {lines.join('\n')}
+        </code>
+      </pre>
+      <button
+        onClick={handleCopy}
+        className="absolute top-2 right-2 opacity-0 group-hover/code:opacity-100 flex items-center gap-1 px-2 py-0.5 text-[11px] rounded font-medium"
+        style={{
+          background: copied ? '#007A5A' : '#FFFFFF',
+          color: copied ? '#FFFFFF' : '#616061',
+          border: `1px solid ${copied ? '#007A5A' : '#DDDDDD'}`,
+          boxShadow: '0 1px 4px rgba(0,0,0,0.12)',
+          transition: 'background 150ms, color 150ms, border-color 150ms, opacity 200ms',
+        }}
+      >
+        {copied ? (
+          <>
+            <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+            </svg>
+            コピー済み
+          </>
+        ) : (
+          <>
+            <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+            </svg>
+            コピー
+          </>
+        )}
+      </button>
+    </div>
+  );
+}
+
+// ─── Inline image detector ────────────────────────────────────────────────────
+
+function isImageUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return /\.(jpe?g|png|gif|webp|svg|bmp)(\?.*)?$/i.test(u.pathname);
+  } catch {
+    return false;
+  }
+}
+
 // ─── Block renderer ──────────────────────────────────────────────────────────
 
 function renderBlock(block: BlockNode, index: number): React.ReactNode {
   switch (block.type) {
 
     case 'code':
-      return (
-        <pre
-          key={index}
-          style={{
-            fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace',
-            fontSize: '12.5px',
-            lineHeight: 1.55,
-            background: 'rgba(29,28,29,0.04)',
-            border: '1px solid rgba(29,28,29,0.13)',
-            borderRadius: '4px',
-            padding: '8px 12px',
-            margin: '4px 0',
-            overflowX: 'auto',
-            whiteSpace: 'pre',
-            wordBreak: 'normal',
-            color: '#1D1C1D',
-            maxWidth: '100%',
-          }}
-        >
-          {block.lang && (
-            <span
-              style={{
-                display: 'block',
-                fontSize: '11px',
-                color: '#9E9EA6',
-                marginBottom: '6px',
-                fontFamily: 'inherit',
-                letterSpacing: '0.3px',
-              }}
-            >
-              {block.lang}
-            </span>
-          )}
-          <code style={{ fontFamily: 'inherit', color: 'inherit', background: 'none', border: 'none', padding: 0, fontSize: 'inherit', borderRadius: 0 }}>
-            {block.lines.join('\n')}
-          </code>
-        </pre>
-      );
+      return <CodeBlock key={index} index={index} lang={block.lang} lines={block.lines} />;
 
     case 'quote':
       return (
@@ -323,8 +378,32 @@ function renderBlock(block: BlockNode, index: number): React.ReactNode {
       );
 
     case 'para':
-    default:
-      return block.text ? (
+    default: {
+      if (!block.text) return null;
+      const trimmed = block.text.trim();
+      // Standalone image URL → show inline preview
+      if (/^https?:\/\/\S+$/.test(trimmed) && isImageUrl(trimmed)) {
+        return (
+          <a key={index} href={trimmed} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+            <img
+              src={trimmed}
+              alt=""
+              style={{
+                maxWidth: '360px',
+                maxHeight: '240px',
+                borderRadius: '6px',
+                display: 'block',
+                margin: '4px 0',
+                border: '1px solid rgba(29,28,29,0.1)',
+                objectFit: 'contain',
+                background: '#F8F8F8',
+              }}
+              loading="lazy"
+            />
+          </a>
+        );
+      }
+      return (
         <p
           key={index}
           style={{
@@ -335,7 +414,8 @@ function renderBlock(block: BlockNode, index: number): React.ReactNode {
         >
           {renderInline(block.text)}
         </p>
-      ) : null;
+      );
+    }
   }
 }
 

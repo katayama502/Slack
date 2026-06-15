@@ -13,6 +13,10 @@ export function markChannelRead(channelId: string): void {
   localStorage.setItem(KEY(channelId), Date.now().toString());
 }
 
+export function markChannelUnreadFrom(channelId: string, timestampMs: number): void {
+  localStorage.setItem(KEY(channelId), (timestampMs - 1).toString());
+}
+
 /**
  * チャンネルごとの未読状態を返す。
  * 各チャンネルの最新メッセージ timestamp と localStorage の lastVisit を比較して判定。

@@ -1,5 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { useAppStore } from '../../store/useAppStore';
+import { useUnreadChannels } from '../../hooks/useUnreadChannels';
 import NavRail from '../sidebar/NavRail';
 import Sidebar from '../sidebar/Sidebar';
 import ChannelHeader from '../channel/ChannelHeader';
@@ -15,9 +16,11 @@ import { ToastContainer } from '../ui/Toast';
 
 // ─── Keyboard shortcut help modal ────────────────────────────────────────────
 const SHORTCUTS = [
-  { keys: ['Ctrl', 'K'], label: 'クイック切り替え（チャンネル・DM）' },
+  { keys: ['Ctrl', 'K'], label: 'クイック切り替え（チャンネル・メッセージ検索）' },
   { keys: ['Ctrl', 'F'], label: 'チャンネル内検索' },
   { keys: ['Ctrl', '/'], label: 'ショートカット一覧' },
+  { keys: ['Alt', '↑'], label: '前のチャンネルへ移動' },
+  { keys: ['Alt', '↓'], label: '次のチャンネルへ移動' },
   { keys: ['Esc'], label: 'パネル・編集を閉じる' },
   { keys: ['Enter'], label: 'メッセージ送信' },
   { keys: ['Shift', 'Enter'], label: '改行' },
@@ -92,8 +95,30 @@ export default function Layout() {
   const setNotificationsPanelOpen = useAppStore((s) => s.setNotificationsPanelOpen);
   const setSavedItemsPanelOpen = useAppStore((s) => s.setSavedItemsPanelOpen);
   const setSearchQuery = useAppStore((s) => s.setSearchQuery);
+  const setJumpToMessageId = useAppStore((s) => s.setJumpToMessageId);
+  const unreadChannels = useUnreadChannels();
 
   const rightPanel = threadPanelMessageId || notificationsPanelOpen || savedItemsPanelOpen;
+
+  // Document title: show unread count badge
+  useEffect(() => {
+    const count = unreadChannels.size;
+    document.title = count > 0 ? `(${count}) Creatte` : 'Creatte';
+  }, [unreadChannels.size]);
+
+  // URL-based navigation: ?channel=X&msg=Y
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const channelParam = params.get('channel');
+    const msgParam = params.get('msg');
+    if (channelParam) {
+      setActiveChannel(channelParam);
+      if (msgParam) setJumpToMessageId(msgParam);
+      // Clean URL without reloading
+      history.replaceState(null, '', window.location.pathname);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -129,6 +154,19 @@ export default function Layout() {
         e.preventDefault();
         // Dispatch a custom event that ChannelHeader can listen to
         window.dispatchEvent(new CustomEvent('open-channel-search'));
+        return;
+      }
+
+      // Alt+↑/↓ → previous/next channel (like real Slack)
+      if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && !isInput) {
+        e.preventDefault();
+        const state = useAppStore.getState();
+        const allChannels = state.channels.filter((c) => !c.name.startsWith('__dm__'));
+        const cur = allChannels.findIndex((c) => c.id === state.activeChannelId);
+        const next = e.key === 'ArrowDown'
+          ? allChannels[Math.min(cur + 1, allChannels.length - 1)]
+          : allChannels[Math.max(cur - 1, 0)];
+        if (next) setActiveChannel(next.id);
         return;
       }
     };

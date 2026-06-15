@@ -21,6 +21,14 @@ interface ExtendedStore extends AppStore {
   // モバイル用ドロワー
   mobileSidebarOpen: boolean
   setMobileSidebarOpen: (open: boolean) => void
+
+  // URL共有リンクからのメッセージジャンプ
+  jumpToMessageId: string | null
+  setJumpToMessageId: (id: string | null) => void
+
+  // チャンネルメッセージのローディング状態
+  channelLoading: boolean
+  setChannelLoading: (loading: boolean) => void
 }
 
 export const useAppStore = create<ExtendedStore>((set, _get) => ({
@@ -180,6 +188,10 @@ export const useAppStore = create<ExtendedStore>((set, _get) => ({
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   mobileSidebarOpen: false,
   setMobileSidebarOpen: (open: boolean) => set({ mobileSidebarOpen: open }),
+  jumpToMessageId: null,
+  setJumpToMessageId: (id: string | null) => set({ jumpToMessageId: id }),
+  channelLoading: false,
+  setChannelLoading: (loading: boolean) => set({ channelLoading: loading }),
   openThreadPanel: (messageId: string) =>
     set({ threadPanelMessageId: messageId, activeThreadMessageId: messageId }),
   closeThreadPanel: () =>

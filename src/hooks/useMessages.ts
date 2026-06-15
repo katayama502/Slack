@@ -10,21 +10,24 @@ import type { Message } from '../types';
 export function useMessages(): Message[] {
   const activeChannelId = useAppStore((s) => s.activeChannelId);
   const setMessages = useAppStore((s) => s.setMessages);
+  const setChannelLoading = useAppStore((s) => s.setChannelLoading);
   const messages = useAppStore((s) =>
     activeChannelId ? (s.messages[activeChannelId] ?? []) : []
   );
 
   useEffect(() => {
     if (!activeChannelId) return;
+    setChannelLoading(true);
 
     const unsubscribe = subscribeToMessages(activeChannelId, (msgs) => {
       setMessages(activeChannelId, msgs);
+      setChannelLoading(false);
     });
 
     return () => {
       unsubscribe();
     };
-  }, [activeChannelId, setMessages]);
+  }, [activeChannelId, setMessages, setChannelLoading]);
 
   return messages;
 }

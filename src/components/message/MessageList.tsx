@@ -154,12 +154,16 @@ export default function MessageList() {
   const searchQuery = useAppStore((s) => s.searchQuery);
   const activeChannelId = useAppStore((s) => s.activeChannelId);
   const openThreadPanel = useAppStore((s) => s.openThreadPanel);
+  const channelLoading = useAppStore((s) => s.channelLoading);
+  const jumpToMessageId = useAppStore((s) => s.jumpToMessageId);
+  const setJumpToMessageId = useAppStore((s) => s.setJumpToMessageId);
   const messages = searchQuery.trim()
     ? allMessages.filter((m) => m.text.toLowerCase().includes(searchQuery.toLowerCase()))
     : allMessages;
   const parentRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
   const [showJumpBtn, setShowJumpBtn] = useState(false);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
 
   // チャンネル変更前の lastVisit をキャプチャ（変更後に mark されるため useRef で保持）
   const lastVisitRef = useRef<number>(0);
@@ -190,6 +194,18 @@ export default function MessageList() {
       parentRef.current.scrollTop = parentRef.current.scrollHeight;
     }
   };
+
+  // Jump to a specific message (from shared link URL)
+  useEffect(() => {
+    if (!jumpToMessageId || messages.length === 0) return;
+    const rowIdx = rows.findIndex((r) => r.type === 'message' && r.message.id === jumpToMessageId);
+    if (rowIdx === -1) return;
+    virtualizer.scrollToIndex(rowIdx, { align: 'center' });
+    setHighlightedMessageId(jumpToMessageId);
+    setJumpToMessageId(null);
+    const t = setTimeout(() => setHighlightedMessageId(null), 2000);
+    return () => clearTimeout(t);
+  }, [jumpToMessageId, messages.length]);
 
   // Track if user is scrolled to bottom
   const handleScroll = () => {
@@ -227,6 +243,24 @@ export default function MessageList() {
       isAtBottomRef.current = true;
     }
   }, [activeChannelId]);
+
+  // Show skeleton while first load
+  if (channelLoading && messages.length === 0) {
+    return (
+      <div className="flex-1 flex flex-col justify-end px-5 pb-3 gap-5">
+        {[72, 48, 90, 36, 60].map((w, i) => (
+          <div key={i} className="flex gap-3 items-start">
+            <div className="w-9 h-9 rounded flex-shrink-0" style={{ background: '#EBEBEB', animation: 'skeletonPulse 1.4s ease-in-out infinite', animationDelay: `${i * 0.1}s` }} />
+            <div className="flex-1 flex flex-col gap-2 pt-1">
+              <div className="h-3 rounded" style={{ width: '120px', background: '#EBEBEB', animation: 'skeletonPulse 1.4s ease-in-out infinite', animationDelay: `${i * 0.1}s` }} />
+              <div className="h-3 rounded" style={{ width: `${w}%`, background: '#EBEBEB', animation: 'skeletonPulse 1.4s ease-in-out infinite', animationDelay: `${i * 0.1 + 0.05}s` }} />
+              {w > 60 && <div className="h-3 rounded" style={{ width: `${w - 25}%`, background: '#EBEBEB', animation: 'skeletonPulse 1.4s ease-in-out infinite', animationDelay: `${i * 0.1 + 0.1}s` }} />}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   if (messages.length === 0) {
     // 検索中でゼロ件
@@ -314,12 +348,20 @@ export default function MessageList() {
                   <hr className="flex-1" style={{ borderColor: '#E01E5A' }} />
                 </div>
               ) : (
-                <MessageItem
-                  message={row.message}
-                  isCompact={row.isCompact}
-                  onThreadClick={openThreadPanel}
-                  searchQuery={searchQuery}
-                />
+                <div
+                  style={
+                    highlightedMessageId === row.message.id
+                      ? { animation: 'msgFlash 2s ease-out', borderRadius: '4px' }
+                      : undefined
+                  }
+                >
+                  <MessageItem
+                    message={row.message}
+                    isCompact={row.isCompact}
+                    onThreadClick={openThreadPanel}
+                    searchQuery={searchQuery}
+                  />
+                </div>
               )}
             </div>
           );

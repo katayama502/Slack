@@ -118,6 +118,33 @@
   100% { transform: scale(1); opacity: 1; }
 }
 
+/* Message highlight flash (from shared link navigation) */
+@keyframes msgFlash {
+  0%   { background: rgba(255, 220, 0, 0.38); }
+  50%  { background: rgba(255, 220, 0, 0.22); }
+  100% { background: transparent; }
+}
+
+/* Reaction button pop on click */
+@keyframes reactionPop {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.32); }
+  65%  { transform: scale(0.88); }
+  100% { transform: scale(1); }
+}
+
+/* Thread / channel typing dots */
+@keyframes typingBounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30%           { transform: translateY(-4px); opacity: 1; }
+}
+
+/* Skeleton loading shimmer */
+@keyframes skeletonPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.45; }
+}
+
 /* ============================================================
    Global button press feedback
    すべての button に押下時の微小スケール + 素早いトランジション
@@ -159,5 +186,11 @@
   .press-subtle:active:not(:disabled) {
     transform: scale(0.97) !important;
     opacity: 0.9 !important;
+  }
+
+  /* リアクションボタン: クリックでポップアニメーション */
+  .reaction-btn:active:not(:disabled) {
+    animation: reactionPop 300ms ease !important;
+    transform: none !important;
   }
 }
