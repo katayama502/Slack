@@ -36,7 +36,11 @@ export default function NotificationsPanel() {
               `${notif.fromDisplayName} があなたをメンションしました`,
               { body: notif.text.slice(0, 100), icon: '/favicon.ico', tag: notif.id }
             );
-            n.onclick = () => { window.focus(); };
+            n.onclick = () => {
+              window.focus();
+              useAppStore.getState().setActiveChannel(notif.channelId);
+              useAppStore.getState().setNotificationsPanelOpen(false);
+            };
           });
         }
       }

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, KeyboardEvent } from 'react';
 import ReactDOM from 'react-dom';
 import { useAppStore } from '../../store/useAppStore';
 import { useThreads } from '../../hooks/useThreads';
+import { useThreadTypingUsers, useSendThreadTyping } from '../../hooks/useTyping';
 import {
   sendThreadReply,
   sendMessage,
@@ -55,6 +56,8 @@ export default function ThreadPanel() {
   );
 
   const threads = useThreads();
+  const threadTypers = useThreadTypingUsers(activeChannelId, threadPanelMessageId);
+  const { startTyping: startThreadTyping, stopTyping: stopThreadTyping } = useSendThreadTyping(activeChannelId, threadPanelMessageId);
   const [replyText, setReplyText] = useState('');
   const [sending, setSending] = useState(false);
   const [alsoSendToChannel, setAlsoSendToChannel] = useState(false);
@@ -79,6 +82,7 @@ export default function ThreadPanel() {
     const trimmed = replyText.trim();
     setSending(true);
     setReplyText('');
+    stopThreadTyping();
     try {
       // スレッドの親メッセージ投稿者と既存の参加者に通知
       const notifyUids = [
@@ -262,7 +266,7 @@ export default function ThreadPanel() {
                           key={emoji}
                           onClick={() => handleReaction(parentMessage.id, emoji, true)}
                           title={uids.map((uid) => users.find((u) => u.uid === uid)?.displayName ?? uid).join(', ')}
-                          className="flex items-center gap-0.5 text-[12px] px-1.5 py-0.5 press-subtle"
+                          className="flex items-center gap-0.5 text-[12px] px-1.5 py-0.5 reaction-btn"
                           style={{
                             borderRadius: '24px',
                             border: user && uids.includes(user.uid) ? '1.5px solid #1264A3' : '1px solid #DDDDDD',
@@ -416,7 +420,7 @@ export default function ThreadPanel() {
                             key={emoji}
                             onClick={() => handleReaction(thread.id, emoji)}
                             title={uids.map((uid) => users.find((u) => u.uid === uid)?.displayName ?? uid).join(', ')}
-                            className="flex items-center gap-0.5 text-[12px] px-1.5 py-0.5 press-subtle"
+                            className="flex items-center gap-0.5 text-[12px] px-1.5 py-0.5 reaction-btn"
                             style={{
                               borderRadius: '24px',
                               border: user && uids.includes(user.uid) ? '1.5px solid #1264A3' : '1px solid #DDDDDD',
@@ -503,6 +507,33 @@ export default function ThreadPanel() {
         <div ref={bottomRef} />
       </div>
 
+      {/* Thread typing indicator */}
+      <div className="px-4 min-h-[20px] flex items-center" aria-live="polite" aria-atomic="true">
+        {threadTypers.length > 0 && (
+          <div className="flex items-center gap-2">
+            <div className="flex items-end gap-[3px]" style={{ height: '14px' }}>
+              {[0, 1, 2].map((i) => (
+                <span
+                  key={i}
+                  className="block w-1.5 h-1.5 rounded-full"
+                  style={{
+                    background: '#616061',
+                    animation: `typingBounce 1.2s ease-in-out ${i * 0.2}s infinite`,
+                  }}
+                />
+              ))}
+            </div>
+            <span className="text-[12px] text-[#616061]">
+              {threadTypers.length === 1
+                ? `${threadTypers[0].displayName} が入力中...`
+                : threadTypers.length === 2
+                ? `${threadTypers[0].displayName} と ${threadTypers[1].displayName} が入力中...`
+                : `${threadTypers.length}人が入力中...`}
+            </span>
+          </div>
+        )}
+      </div>
+
       {/* Reply input */}
       <div className="px-4 py-3 flex-shrink-0" style={{ borderTop: '1px solid #E8E8E8' }}>
         <div
@@ -554,10 +585,10 @@ export default function ThreadPanel() {
           <textarea
             ref={textareaRef}
             value={replyText}
-            onChange={(e) => setReplyText(e.target.value)}
+            onChange={(e) => { setReplyText(e.target.value); if (e.target.value.trim()) startThreadTyping(); else stopThreadTyping(); }}
             onKeyDown={handleKeyDown}
             onFocus={() => setThreadInputFocused(true)}
-            onBlur={() => setThreadInputFocused(false)}
+            onBlur={() => { setThreadInputFocused(false); stopThreadTyping(); }}
             placeholder={`${channelLabel ? channelLabel + ' の' : ''}スレッドに返信...`}
             aria-label="スレッドへの返信を入力"
             rows={2}

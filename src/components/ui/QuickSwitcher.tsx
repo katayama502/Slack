@@ -17,6 +17,7 @@ export default function QuickSwitcher({ onClose }: QuickSwitcherProps) {
   const { user } = useAppStore((s) => s.auth);
   const channels = useAppStore((s) => s.channels);
   const users = useAppStore((s) => s.users);
+  const allMessages = useAppStore((s) => s.messages);
   const setActiveChannel = useAppStore((s) => s.setActiveChannel);
   const addChannel = useAppStore((s) => s.addChannel);
 
@@ -32,9 +33,44 @@ export default function QuickSwitcher({ onClose }: QuickSwitcherProps) {
     ? otherUsers.filter((u) => u.displayName.toLowerCase().includes(q))
     : otherUsers.slice(0, 5);
 
-  const results: Array<{ type: 'channel' | 'user'; id: string; name: string; photoURL?: string | null; online?: boolean }> = [
+  // Message full-text search across loaded channels (query ≥ 2 chars)
+  type MessageResult = {
+    type: 'message';
+    id: string;
+    name: string;
+    channelId: string;
+    channelName: string;
+    text: string;
+    displayName: string;
+  };
+  const filteredMessages: MessageResult[] = q.length >= 2
+    ? Object.entries(allMessages).flatMap(([channelId, msgs]) => {
+        const ch = channels.find((c) => c.id === channelId);
+        if (!ch) return [];
+        return msgs
+          .filter((m) => m.text.toLowerCase().includes(q))
+          .slice(0, 3)
+          .map((m) => ({
+            type: 'message' as const,
+            id: m.id,
+            name: m.text,
+            channelId,
+            channelName: ch.name.startsWith('__dm__') ? 'DM' : `#${ch.name}`,
+            text: m.text,
+            displayName: m.displayName,
+          }));
+      }).slice(0, 5)
+    : [];
+
+  type ResultItem =
+    | { type: 'channel'; id: string; name: string }
+    | { type: 'user'; id: string; name: string; photoURL?: string | null; online?: boolean }
+    | MessageResult;
+
+  const results: ResultItem[] = [
     ...filteredChannels.map((c) => ({ type: 'channel' as const, id: c.id, name: c.name })),
     ...filteredUsers.map((u) => ({ type: 'user' as const, id: u.uid, name: u.displayName, photoURL: u.photoURL, online: u.online })),
+    ...filteredMessages,
   ];
 
   useEffect(() => {
@@ -51,13 +87,16 @@ export default function QuickSwitcher({ onClose }: QuickSwitcherProps) {
     el?.scrollIntoView({ block: 'nearest' });
   }, [selectedIndex]);
 
-  const handleSelect = async (item: typeof results[0]) => {
+  const handleSelect = async (item: ResultItem) => {
     if (!user) return;
     onClose();
     if (item.type === 'channel') {
       await joinChannelIfNeeded(item.id, user.uid).catch(() => {});
       markChannelRead(item.id);
       setActiveChannel(item.id);
+    } else if (item.type === 'message') {
+      markChannelRead(item.channelId);
+      setActiveChannel(item.channelId);
     } else {
       // Open DM
       try {
@@ -104,6 +143,9 @@ export default function QuickSwitcher({ onClose }: QuickSwitcherProps) {
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-label="クイック切り替え"
+        aria-modal="true"
         className="w-full max-w-lg rounded-xl overflow-hidden"
         style={{
           background: '#FFFFFF',
@@ -123,10 +165,14 @@ export default function QuickSwitcher({ onClose }: QuickSwitcherProps) {
           <input
             ref={inputRef}
             type="text"
+            role="combobox"
+            aria-expanded={results.length > 0}
+            aria-autocomplete="list"
+            aria-label="チャンネル・メンバー・メッセージを検索"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="チャンネルやメンバーを検索..."
+            placeholder="チャンネル・メンバー・メッセージを検索..."
             className="flex-1 text-[16px] text-[#1D1C1D] placeholder-[#999] focus:outline-none py-4 bg-transparent"
           />
           <kbd
@@ -205,6 +251,47 @@ export default function QuickSwitcher({ onClose }: QuickSwitcherProps) {
                     <div>
                       <p className="text-[14px] text-[#1D1C1D] font-medium">{u.displayName}</p>
                       <p className="text-[11px] text-[#616061]">{u.online ? 'アクティブ' : 'オフライン'}</p>
+                    </div>
+                  </button>
+                </li>
+              );
+            })}
+
+            {/* Section: Messages */}
+            {filteredMessages.length > 0 && (
+              <li className="px-4 py-1 mt-1">
+                <span className="text-[11px] font-bold text-[#616061] uppercase tracking-wide">メッセージ</span>
+              </li>
+            )}
+            {filteredMessages.map((msg, i) => {
+              const idx = filteredChannels.length + filteredUsers.length + i;
+              const isSelected = idx === selectedIndex;
+              const preview = msg.text.length > 60 ? msg.text.slice(0, 60) + '…' : msg.text;
+              return (
+                <li key={`${msg.channelId}-${msg.id}`}>
+                  <button
+                    onClick={() => handleSelect(msg)}
+                    className="w-full flex items-center gap-3 px-4 py-2 text-left press-subtle"
+                    style={{
+                      background: isSelected ? '#EBF5FF' : 'transparent',
+                      borderLeft: isSelected ? '2px solid #1164A3' : '2px solid transparent',
+                    }}
+                    onMouseEnter={() => setSelectedIndex(idx)}
+                  >
+                    <div
+                      className="w-8 h-8 flex items-center justify-center rounded flex-shrink-0"
+                      style={{ background: isSelected ? '#DBEAFE' : '#F8F8F8', border: '1px solid #EEEEEE' }}
+                    >
+                      <svg className="w-4 h-4 text-[#616061]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
+                      </svg>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[12px] font-semibold text-[#1164A3] flex-shrink-0">{msg.channelName}</span>
+                        <span className="text-[12px] text-[#616061] truncate">{msg.displayName}</span>
+                      </div>
+                      <p className="text-[13px] text-[#1D1C1D] truncate">{preview}</p>
                     </div>
                   </button>
                 </li>

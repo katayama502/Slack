@@ -161,12 +161,26 @@ export default function MessageInput() {
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestQuery, setSuggestQuery] = useState('');
   const [suggestIndex, setSuggestIndex] = useState(0);
+  const [slashCmdOpen, setSlashCmdOpen] = useState(false);
+  const [slashCmdQuery, setSlashCmdQuery] = useState('');
+  const [slashCmdIndex, setSlashCmdIndex] = useState(0);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [isEmpty, setIsEmpty] = useState(true);
   const [isFocused, setIsFocused] = useState(false);
   const [showTopBar, setShowTopBar] = useState(true);
   const [charCount, setCharCount] = useState(0);
   const lastSentAtRef = useRef<number>(0);  // rate limiting
+
+  const SLASH_COMMANDS = [
+    { name: 'me', description: 'アクションメッセージを送信', usage: '/me [テキスト]' },
+    { name: 'shrug', description: '¯\\_(ツ)_/¯ を送信', usage: '/shrug' },
+    { name: 'tableflip', description: '(╯°□°）╯︵ ┻━┻ を送信', usage: '/tableflip' },
+    { name: 'unflip', description: '┬─┬ ノ( ゜-゜ノ) を送信', usage: '/unflip' },
+  ];
+
+  const filteredSlashCmds = SLASH_COMMANDS.filter(
+    (c) => c.name.startsWith(slashCmdQuery.toLowerCase())
+  );
 
   // Active format states (updated on selectionchange)
   const [fmt, setFmt] = useState({ bold: false, italic: false, underline: false, strike: false, ol: false, ul: false, blockquote: false });
@@ -428,8 +442,20 @@ export default function MessageInput() {
       setSuggestQuery(atMatch[1]);
       setSuggestOpen(true);
       setSuggestIndex(0);
+      setSlashCmdOpen(false);
     } else {
       setSuggestOpen(false);
+    }
+
+    // Slash command suggestions (only when input starts with /)
+    const rawText = el.innerText?.trim() ?? '';
+    const slashMatch = rawText.match(/^\/(\w*)$/);
+    if (slashMatch && !suggestOpen) {
+      setSlashCmdQuery(slashMatch[1]);
+      setSlashCmdOpen(true);
+      setSlashCmdIndex(0);
+    } else if (!rawText.startsWith('/')) {
+      setSlashCmdOpen(false);
     }
   };
 
@@ -468,6 +494,35 @@ export default function MessageInput() {
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    // Slash command suggestions navigation
+    if (slashCmdOpen && filteredSlashCmds.length > 0) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setSlashCmdIndex((i) => Math.min(i + 1, filteredSlashCmds.length - 1)); return; }
+      if (e.key === 'ArrowUp')   { e.preventDefault(); setSlashCmdIndex((i) => Math.max(i - 1, 0)); return; }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        const cmd = filteredSlashCmds[slashCmdIndex];
+        if (cmd && editableRef.current) {
+          // Use textContent for safe insertion of slash command text
+          editableRef.current.textContent = `/${cmd.name}`;
+          setSlashCmdOpen(false);
+          setIsEmpty(false);
+          // Move caret to end
+          const sel = window.getSelection();
+          const range = document.createRange();
+          if (editableRef.current.firstChild) {
+            range.setStart(editableRef.current.firstChild, editableRef.current.textContent.length);
+          } else {
+            range.selectNodeContents(editableRef.current);
+          }
+          range.collapse(false);
+          sel?.removeAllRanges();
+          sel?.addRange(range);
+        }
+        return;
+      }
+      if (e.key === 'Escape') { setSlashCmdOpen(false); return; }
+    }
+
     // Mention suggestions navigation
     if (suggestOpen && filteredUsers.length > 0) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setSuggestIndex((i) => Math.min(i + 1, filteredUsers.length - 1)); return; }
@@ -538,6 +593,18 @@ export default function MessageInput() {
     const html = el.innerHTML;
     let markdown = htmlToMarkdown(html);
 
+    // Slash commands
+    if (markdown.startsWith('/me ') && user) {
+      const action = markdown.slice(4).trim();
+      markdown = `_${user.displayName} ${action}_`;
+    } else if (markdown.trim().toLowerCase() === '/shrug') {
+      markdown = '¯\\_(ツ)_/¯';
+    } else if (markdown.trim().toLowerCase() === '/tableflip') {
+      markdown = '(╯°□°）╯︵ ┻━┻';
+    } else if (markdown.trim().toLowerCase() === '/unflip') {
+      markdown = '┬─┬ ノ( ゜-゜ノ)';
+    }
+
     // ファイル名をテキストとして追記
     if (attachedFiles.length > 0) {
       const fileList = attachedFiles.map((f) => `📎 ${f.name.slice(0, 100)}`).join('\n');
@@ -591,6 +658,42 @@ export default function MessageInput() {
           transition: 'border-color 150ms, box-shadow 150ms',
         }}
       >
+        {/* Slash command suggest */}
+        {slashCmdOpen && filteredSlashCmds.length > 0 && (
+          <div className="absolute bottom-full left-0 right-0 mb-1 z-20"
+            style={{ background: '#FFFFFF', border: '1px solid #DDDDDD', borderRadius: '6px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}>
+            <div className="px-3 py-1.5">
+              <span className="text-[11px] font-bold text-[#616061] uppercase tracking-wide">スラッシュコマンド</span>
+            </div>
+            {filteredSlashCmds.map((cmd, i) => (
+              <button key={cmd.name}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  if (editableRef.current) {
+                    editableRef.current.textContent = `/${cmd.name}`;
+                    setSlashCmdOpen(false);
+                    setIsEmpty(false);
+                    editableRef.current.focus();
+                  }
+                }}
+                className="w-full flex items-center gap-2.5 px-3 py-2 text-sm"
+                style={{ background: i === slashCmdIndex ? 'rgba(29,28,29,0.04)' : 'transparent' }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(29,28,29,0.04)'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = i === slashCmdIndex ? 'rgba(29,28,29,0.04)' : 'transparent'; }}
+              >
+                <div className="w-7 h-7 flex items-center justify-center text-[#1264A3] font-bold text-[15px] rounded" style={{ background: 'rgba(18,100,163,0.1)', flexShrink: 0 }}>
+                  /
+                </div>
+                <div className="flex-1 min-w-0 text-left">
+                  <div className="font-semibold text-[14px] text-[#1D1C1D]">/{cmd.name}</div>
+                  <div className="text-[12px] text-[#616061]">{cmd.description}</div>
+                </div>
+                <div className="text-[12px] text-[#9E9EA6] flex-shrink-0">{cmd.usage}</div>
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Mention suggest */}
         {suggestOpen && filteredUsers.length > 0 && (
           <div className="absolute bottom-full left-0 right-0 mb-1 max-h-48 overflow-y-auto z-20"

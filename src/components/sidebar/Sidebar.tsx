@@ -3,7 +3,7 @@ import { Timestamp } from 'firebase/firestore';
 import { useAppStore } from '../../store/useAppStore';
 import { signOut, getOrCreateDMChannel, getDMChannelName, joinChannelIfNeeded } from '../../services';
 import AddChannelModal from './AddChannelModal';
-import { useUnreadChannels, markChannelRead } from '../../hooks/useUnreadChannels';
+import { useUnreadChannels, markChannelRead, getLastVisit } from '../../hooks/useUnreadChannels';
 import { StatusPicker } from '../ui/StatusPicker';
 import type { User } from '../../types';
 
@@ -90,7 +90,14 @@ export default function Sidebar() {
   const addChannel = useAppStore((s) => s.addChannel);
   const { user } = useAppStore((s) => s.auth);
   const users = useAppStore((s) => s.users);
+  const allMessages = useAppStore((s) => s.messages);
   const unreadChannels = useUnreadChannels();
+
+  const getUnreadCount = (channelId: string): number => {
+    const msgs = allMessages[channelId] ?? [];
+    const lastVisit = getLastVisit(channelId);
+    return msgs.filter((m) => m.createdAt.toMillis() > lastVisit).length;
+  };
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [showNewDM, setShowNewDM] = useState(false);
@@ -269,6 +276,7 @@ export default function Sidebar() {
                 {filteredChannels.map((ch) => {
                   const isActive = ch.id === activeChannelId;
                   const hasUnread = unreadChannels.has(ch.id);
+                  const unreadCount = hasUnread && !isActive ? getUnreadCount(ch.id) : 0;
                   return (
                     <li key={ch.id}>
                       <button
@@ -290,10 +298,16 @@ export default function Sidebar() {
                         >#</span>
                         <span className="truncate flex-1 text-left">{ch.name}</span>
                         {hasUnread && !isActive && (
-                          <span
-                            className="flex-shrink-0 w-2 h-2 rounded-full"
-                            style={{ background: '#FFFFFF', flexShrink: 0 }}
-                          />
+                          unreadCount > 0 ? (
+                            <span
+                              className="flex-shrink-0 min-w-[18px] h-[18px] px-1 flex items-center justify-center text-[11px] font-bold rounded-full text-[#3F0E40]"
+                              style={{ background: '#FFFFFF', lineHeight: 1 }}
+                            >
+                              {unreadCount > 99 ? '99+' : unreadCount}
+                            </span>
+                          ) : (
+                            <span className="flex-shrink-0 w-2 h-2 rounded-full" style={{ background: '#FFFFFF' }} />
+                          )
                         )}
                       </button>
                     </li>
@@ -384,6 +398,7 @@ export default function Sidebar() {
                 const isActive = isDMActive(u);
                 const isLoading = dmLoading === u.uid;
                 const hasUnread = dmChannelId ? unreadChannels.has(dmChannelId) : false;
+                const dmUnreadCount = hasUnread && !isActive && dmChannelId ? getUnreadCount(dmChannelId) : 0;
                 return (
                   <li key={u.uid}>
                     <button
@@ -418,7 +433,16 @@ export default function Sidebar() {
                         {isLoading ? '接続中...' : u.displayName}
                       </span>
                       {hasUnread && !isActive && (
-                        <span className="flex-shrink-0 w-2 h-2 rounded-full" style={{ background: '#FFFFFF' }} />
+                        dmUnreadCount > 0 ? (
+                          <span
+                            className="flex-shrink-0 min-w-[18px] h-[18px] px-1 flex items-center justify-center text-[11px] font-bold rounded-full text-[#3F0E40]"
+                            style={{ background: '#FFFFFF', lineHeight: 1 }}
+                          >
+                            {dmUnreadCount > 99 ? '99+' : dmUnreadCount}
+                          </span>
+                        ) : (
+                          <span className="flex-shrink-0 w-2 h-2 rounded-full" style={{ background: '#FFFFFF' }} />
+                        )
                       )}
                     </button>
                   </li>

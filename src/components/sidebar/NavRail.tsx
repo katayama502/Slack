@@ -62,6 +62,8 @@ export default function NavRail() {
       />
       <button
         title={title}
+        aria-label={title}
+        aria-pressed={active}
         onClick={onClick}
         className="relative mx-auto w-10 h-10 flex flex-col items-center justify-center gap-0.5 rounded-lg"
         style={{

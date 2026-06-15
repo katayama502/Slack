@@ -1,12 +1,84 @@
 import { useState, useEffect, useRef, memo } from 'react';
 import ReactDOM from 'react-dom';
+import { Timestamp } from 'firebase/firestore';
 import { useAppStore } from '../../store/useAppStore';
-import { deleteMessage, updateMessage, toggleReaction, saveMessage, unsaveMessage } from '../../services';
+import { deleteMessage, updateMessage, toggleReaction, saveMessage, unsaveMessage, getOrCreateDMChannel, getDMChannelName } from '../../services';
 import { formatMessageTime, formatFullDateTime } from '../../utils/formatDate';
 import { renderMarkdown } from '../../utils/markdown';
 import { toast } from '../ui/Toast';
 import EmojiPicker from '../ui/EmojiPicker';
+import { markChannelRead, markChannelUnreadFrom } from '../../hooks/useUnreadChannels';
 import type { Message, User } from '../../types';
+
+// ─── More actions dropdown ────────────────────────────────────────────────────
+function MoreActionsMenu({
+  anchorRect,
+  onClose,
+  onCopyLink,
+  onMarkUnread,
+}: {
+  anchorRect: DOMRect;
+  onClose: () => void;
+  onCopyLink: () => void;
+  onMarkUnread: () => void;
+}) {
+  const width = 200;
+  let left = anchorRect.left;
+  if (left + width > window.innerWidth - 8) left = window.innerWidth - width - 8;
+  const top = anchorRect.bottom + 4;
+
+  const menuItems = [
+    {
+      label: 'リンクをコピー',
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+        </svg>
+      ),
+      onClick: () => { onCopyLink(); onClose(); },
+    },
+    {
+      label: '未読にする',
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 9v.906a2.25 2.25 0 01-1.183 1.981l-6.478 3.488M2.25 9v.906a2.25 2.25 0 001.183 1.981l6.478 3.488m8.839 2.51l-4.66-2.51m0 0l-1.023-.55a2.25 2.25 0 00-2.134 0l-1.022.55m0 0l-4.661 2.51m16.5 1.615a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V8.844a2.25 2.25 0 011.183-1.98l7.5-4.04a2.25 2.25 0 012.134 0l7.5 4.04a2.25 2.25 0 011.183 1.98V19.5z" />
+        </svg>
+      ),
+      onClick: () => { onMarkUnread(); onClose(); },
+    },
+  ];
+
+  return ReactDOM.createPortal(
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div
+        className="fixed z-50 py-1 flex flex-col"
+        style={{
+          top, left, width,
+          background: '#FFFFFF',
+          border: '1px solid #E8E8E8',
+          borderRadius: '8px',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {menuItems.map((item) => (
+          <button
+            key={item.label}
+            onClick={item.onClick}
+            className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-[#1D1C1D] text-left w-full transition-colors"
+            onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+          >
+            <span style={{ color: '#616061' }}>{item.icon}</span>
+            {item.label}
+          </button>
+        ))}
+      </div>
+    </>,
+    document.body
+  );
+}
 
 // ─── Portal emoji picker ───────────────────────────────────────────────────────
 // overflow スクロールコンテナにクリップされないよう body にポータルとして描画する
@@ -70,10 +142,12 @@ function UserProfilePopup({
   user,
   anchor,
   onClose,
+  onDMClick,
 }: {
   user: User;
   anchor: DOMRect;
   onClose: () => void;
+  onDMClick?: () => void;
 }) {
   const left = Math.min(anchor.left, window.innerWidth - 280);
   const top = anchor.bottom + 8;
@@ -129,6 +203,17 @@ function UserProfilePopup({
           {user.email && (
             <p className="text-[12px] text-[#616061] mt-0.5 truncate">{user.email}</p>
           )}
+          {onDMClick && (
+            <button
+              onClick={() => { onDMClick(); onClose(); }}
+              className="mt-3 w-full py-1.5 text-[13px] font-semibold text-white rounded transition-colors"
+              style={{ background: '#007A5A' }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = '#006347'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = '#007A5A'; }}
+            >
+              メッセージを送る
+            </button>
+          )}
         </div>
       </div>
     </>,
@@ -148,12 +233,18 @@ function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' 
   const editingMessageId = useAppStore((s) => s.editingMessageId);
   const setEditingMessageId = useAppStore((s) => s.setEditingMessageId);
 
+  const addChannel = useAppStore((s) => s.addChannel);
+  const setActiveChannel = useAppStore((s) => s.setActiveChannel);
+  const channels = useAppStore((s) => s.channels);
+
   const [showActions, setShowActions] = useState(false);
   const [reactionAnchor, setReactionAnchor] = useState<DOMRect | null>(null);
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(message.text);
   const [profileUser, setProfileUser] = useState<User | null>(null);
   const [profileAnchor, setProfileAnchor] = useState<DOMRect | null>(null);
+  const [moreActionsOpen, setMoreActionsOpen] = useState(false);
+  const moreActionsRef = useRef<HTMLButtonElement>(null);
   const reactionBtnRef = useRef<HTMLButtonElement>(null);
   const addReactionBtnRef = useRef<HTMLButtonElement>(null);
 
@@ -215,6 +306,54 @@ function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' 
       toast.success('コピーしました');
     } catch {
       toast.error('コピーに失敗しました');
+    }
+  };
+
+  const handleCopyLink = async () => {
+    const url = `${window.location.origin}?channel=${activeChannelId}&msg=${message.id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success('リンクをコピーしました');
+    } catch {
+      toast.error('コピーに失敗しました');
+    }
+  };
+
+  const handleMarkUnread = () => {
+    if (!activeChannelId) return;
+    markChannelUnreadFrom(activeChannelId, message.createdAt.toMillis());
+    toast.success('未読にしました');
+  };
+
+  const handleDMFromProfile = async () => {
+    if (!user || !profileUser || profileUser.uid === user.uid) return;
+    try {
+      const dmName = getDMChannelName(user.uid, profileUser.uid);
+      const existing = channels.find((c) => c.name === dmName);
+      if (existing) {
+        markChannelRead(existing.id);
+        setActiveChannel(existing.id);
+      } else {
+        const channelId = await getOrCreateDMChannel(user.uid, profileUser.uid);
+        const alreadyInStore = useAppStore.getState().channels.find((c) => c.id === channelId);
+        if (!alreadyInStore) {
+          addChannel({
+            id: channelId,
+            name: dmName,
+            description: '',
+            createdBy: user.uid,
+            createdAt: Timestamp.now(),
+            members: [user.uid, profileUser.uid],
+          });
+        }
+        markChannelRead(channelId);
+        setActiveChannel(channelId);
+      }
+      setProfileUser(null);
+      setProfileAnchor(null);
+    } catch (err) {
+      console.error('DM open error:', err);
+      toast.error('DMの開設に失敗しました');
     }
   };
 
@@ -442,14 +581,14 @@ function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' 
                   key={emoji}
                   onClick={() => handleReaction(emoji)}
                   title={uids.map((uid) => users.find((u) => u.uid === uid)?.displayName ?? uid).join(', ')}
-                  className="flex items-center gap-0.5 text-[13px] px-2 py-0.5 press-subtle"
+                  className="flex items-center gap-0.5 text-[13px] px-2 py-0.5 reaction-btn"
                   style={{
                     borderRadius: '24px',
                     border: user && uids.includes(user.uid) ? '1.5px solid #1264A3' : '1px solid #DDDDDD',
                     background: user && uids.includes(user.uid) ? 'rgba(18,100,163,0.1)' : '#F4F4F4',
                     color: user && uids.includes(user.uid) ? '#1264A3' : '#616061',
                     fontWeight: user && uids.includes(user.uid) ? 600 : 400,
-                    transition: 'background 100ms, border-color 100ms, transform 80ms',
+                    transition: 'background 100ms, border-color 100ms',
                   }}
                   onMouseEnter={(e) => {
                     const isMe = user && uids.includes(user.uid);
@@ -615,13 +754,44 @@ function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' 
               </svg>
             </button>
           )}
+
+          <div className="w-px h-4 bg-[#E8E8E8] mx-0.5 flex-shrink-0" />
+
+          {/* More actions */}
+          <button
+            ref={moreActionsRef}
+            onClick={() => setMoreActionsOpen((v) => !v)}
+            title="その他のアクション"
+            className="w-8 h-8 flex items-center justify-center rounded-md press-subtle"
+            style={{
+              color: moreActionsOpen ? '#1D1C1D' : '#616061',
+              background: moreActionsOpen ? '#E8E8E8' : 'transparent',
+            }}
+            onMouseEnter={(e) => { if (!moreActionsOpen) { e.currentTarget.style.background = '#F0F0F0'; e.currentTarget.style.color = '#1D1C1D'; } }}
+            onMouseLeave={(e) => { if (!moreActionsOpen) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#616061'; } }}
+          >
+            <svg className="w-[15px] h-[15px]" fill="currentColor" viewBox="0 0 20 20">
+              <circle cx="10" cy="4" r="1.5" />
+              <circle cx="10" cy="10" r="1.5" />
+              <circle cx="10" cy="16" r="1.5" />
+            </svg>
+          </button>
         </div>
+      )}
+      {moreActionsOpen && moreActionsRef.current && (
+        <MoreActionsMenu
+          anchorRect={moreActionsRef.current.getBoundingClientRect()}
+          onClose={() => setMoreActionsOpen(false)}
+          onCopyLink={handleCopyLink}
+          onMarkUnread={handleMarkUnread}
+        />
       )}
       {profileUser && profileAnchor && (
         <UserProfilePopup
           user={profileUser}
           anchor={profileAnchor}
           onClose={() => { setProfileUser(null); setProfileAnchor(null); }}
+          onDMClick={profileUser.uid !== user?.uid ? handleDMFromProfile : undefined}
         />
       )}
       {/* Emoji picker portal — スクロールコンテナ外に描画してクリップを回避 */}

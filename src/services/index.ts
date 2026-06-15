@@ -626,6 +626,42 @@ export function subscribeToTyping(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Thread Typing Indicators  (channels/{channelId}/messages/{messageId}/typing/{uid})
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function setThreadTyping(
+  channelId: string,
+  messageId: string,
+  uid: string,
+  displayName: string,
+  isTyping: boolean
+): Promise<void> {
+  const ref = doc(db, 'channels', channelId, 'messages', messageId, 'typing', uid);
+  if (isTyping) {
+    await setDoc(ref, { uid, displayName, timestamp: serverTimestamp() });
+  } else {
+    await deleteDoc(ref).catch(() => {});
+  }
+}
+
+export function subscribeToThreadTyping(
+  channelId: string,
+  messageId: string,
+  callback: (uids: { uid: string; displayName: string }[]) => void
+): () => void {
+  return onSnapshot(collection(db, 'channels', channelId, 'messages', messageId, 'typing'), (snap) => {
+    const now = Date.now();
+    const typers = snap.docs
+      .map((d) => d.data() as { uid: string; displayName: string; timestamp: { toMillis: () => number } })
+      .filter((t) => {
+        const ms = t.timestamp?.toMillis?.() ?? 0;
+        return now - ms < 5000;
+      });
+    callback(typers);
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // User Status
 // ─────────────────────────────────────────────────────────────────────────────
 
