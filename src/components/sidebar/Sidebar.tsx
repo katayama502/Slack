@@ -7,6 +7,48 @@ import { useUnreadChannels, markChannelRead, getLastVisit } from '../../hooks/us
 import { StatusPicker } from '../ui/StatusPicker';
 import type { User } from '../../types';
 
+// ─── Sidebar fixed top nav item ───────────────────────────────────────────────
+function SidebarNavItem({
+  icon,
+  label,
+  active,
+  badge,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  active?: boolean;
+  badge?: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full flex items-center gap-2 py-[5px] pl-3 pr-3 transition-colors text-[14px]"
+      style={{
+        width: 'calc(100% - 8px)',
+        margin: '0 4px',
+        borderRadius: '4px',
+        background: active ? '#1164A3' : 'transparent',
+        color: active ? '#FFFFFF' : '#CFC3CF',
+      }}
+      onMouseEnter={(e) => { if (!active) { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = '#FFFFFF'; } }}
+      onMouseLeave={(e) => { if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#CFC3CF'; } }}
+    >
+      <span className="flex-shrink-0 w-4 h-4 flex items-center justify-center opacity-80">{icon}</span>
+      <span className="flex-1 text-left truncate">{label}</span>
+      {badge != null && badge > 0 && (
+        <span
+          className="flex-shrink-0 text-[10px] font-bold leading-none px-1.5 py-0.5 rounded-full"
+          style={{ background: '#E01E5A', color: '#FFFFFF', minWidth: '18px', textAlign: 'center' }}
+        >
+          {badge > 99 ? '99+' : badge}
+        </span>
+      )}
+    </button>
+  );
+}
+
 // ─── New DM modal ─────────────────────────────────────────────────────────────
 function NewDMModal({
   users,
@@ -92,6 +134,16 @@ export default function Sidebar() {
   const users = useAppStore((s) => s.users);
   const allMessages = useAppStore((s) => s.messages);
   const unreadChannels = useUnreadChannels();
+  const setNotificationsPanelOpen = useAppStore((s) => s.setNotificationsPanelOpen);
+  const savedItemsPanelOpen = useAppStore((s) => s.savedItemsPanelOpen);
+  const setSavedItemsPanelOpen = useAppStore((s) => s.setSavedItemsPanelOpen);
+  const draftsPanelOpen = useAppStore((s) => s.draftsPanelOpen);
+  const setDraftsPanelOpen = useAppStore((s) => s.setDraftsPanelOpen);
+  const threadsPanelOpen = useAppStore((s) => (s as any).threadsPanelOpen as boolean);
+  const setThreadsPanelOpen = useAppStore((s) => (s as any).setThreadsPanelOpen as (v: boolean) => void);
+  const drafts = useAppStore((s) => s.drafts);
+  const unreadCount = useAppStore((s) => s.unreadCount);
+  const draftCount = Object.keys(drafts).length;
 
   const getUnreadCount = (channelId: string): number => {
     const msgs = allMessages[channelId] ?? [];
@@ -215,6 +267,65 @@ export default function Sidebar() {
 
       {/* ── Scrollable nav ── */}
       <div className="flex-1 overflow-y-auto sidebar-scroll py-2">
+
+        {/* ── 固定ナビ項目 ── */}
+        <div className="mb-2">
+          <SidebarNavItem
+            icon={
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242m9.345-8.334a2.126 2.126 0 00-.476-.095 48.64 48.64 0 00-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0011.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" />
+              </svg>
+            }
+            label="スレッド"
+            active={threadsPanelOpen}
+            onClick={() => {
+              setThreadsPanelOpen(!threadsPanelOpen);
+            }}
+          />
+          <SidebarNavItem
+            icon={
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+              </svg>
+            }
+            label="メンション&リアクション"
+            badge={unreadCount}
+            onClick={() => {
+              setNotificationsPanelOpen(true);
+              setSavedItemsPanelOpen(false);
+            }}
+          />
+          <SidebarNavItem
+            icon={
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z" />
+              </svg>
+            }
+            label="保存済み"
+            active={savedItemsPanelOpen}
+            onClick={() => {
+              setSavedItemsPanelOpen(!savedItemsPanelOpen);
+              if (!savedItemsPanelOpen) setNotificationsPanelOpen(false);
+            }}
+          />
+          <SidebarNavItem
+            icon={
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+              </svg>
+            }
+            label="下書き"
+            active={draftsPanelOpen}
+            badge={draftCount > 0 ? draftCount : undefined}
+            onClick={() => {
+              setDraftsPanelOpen(!draftsPanelOpen);
+              if (!draftsPanelOpen) {
+                setNotificationsPanelOpen(false);
+                setSavedItemsPanelOpen(false);
+              }
+            }}
+          />
+        </div>
 
         {/* ── チャンネルセクション ── */}
         <div className="mt-1">

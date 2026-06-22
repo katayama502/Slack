@@ -6,6 +6,37 @@ import { toast } from '../ui/Toast';
 import EmojiPickerComponent from '../ui/EmojiPicker';
 import type { User } from '../../types';
 
+// ── Draft auto-save (debounced 800 ms) ───────────────────────────────────────
+function useDraftAutoSave(channelId: string | null) {
+  const saveDraft = useAppStore((s) => s.saveDraft);
+  const deleteDraft = useAppStore((s) => s.deleteDraft);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const schedule = useCallback((html: string, text: string) => {
+    if (!channelId) return;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      saveDraft(channelId, html, text);
+    }, 800);
+  }, [channelId, saveDraft]);
+
+  const flush = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
+  const clear = useCallback(() => {
+    flush();
+    if (channelId) deleteDraft(channelId);
+  }, [channelId, deleteDraft, flush]);
+
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+
+  return { schedule, clear };
+}
+
 // ─── HTML → Markdown conversion ─────────────────────────────────────────────
 
 function nodeToMd(node: Node): string {
@@ -156,6 +187,8 @@ export default function MessageInput() {
   const { user } = useAppStore((s) => s.auth);
   const users = useAppStore((s) => s.users);
   const setEditingMessageId = useAppStore((s) => s.setEditingMessageId);
+  const drafts = useAppStore((s) => s.drafts);
+  const { schedule: scheduleDraftSave, clear: clearDraft } = useDraftAutoSave(activeChannelId);
 
   const [sending, setSending] = useState(false);
   const [suggestOpen, setSuggestOpen] = useState(false);
@@ -211,13 +244,37 @@ export default function MessageInput() {
       : `${dmOtherUser!.displayName} にメッセージを送信`
     : channel ? `#${channel.name} にメッセージを送信` : 'メッセージを送信';
 
-  // Reset editor on channel change
+  // Reset / restore editor on channel change
   useEffect(() => {
-    if (editableRef.current) editableRef.current.innerHTML = '';
-    setIsEmpty(true);
+    const el = editableRef.current;
+    if (!el) return;
     setSuggestOpen(false);
     setAttachedFiles([]);
     setLinkPopupOpen(false);
+
+    const draft = activeChannelId ? drafts[activeChannelId] : undefined;
+    if (draft && draft.html) {
+      // Restore draft content: parse through DOMParser for defensive sanitisation,
+      // then transplant nodes (avoids setting innerHTML directly).
+      const parsed = new DOMParser().parseFromString(draft.html, 'text/html');
+      el.textContent = '';
+      Array.from(parsed.body.childNodes).forEach((node) => {
+        el.appendChild(document.importNode(node, true));
+      });
+      setIsEmpty(false);
+      // Move caret to end
+      const r = document.createRange();
+      const sel = window.getSelection();
+      r.selectNodeContents(el);
+      r.collapse(false);
+      sel?.removeAllRanges();
+      sel?.addRange(r);
+    } else {
+      el.textContent = '';
+      setIsEmpty(true);
+    }
+  // drafts excluded from deps — run only when channel changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeChannelId]);
 
   // Track active formatting via selectionchange
@@ -436,6 +493,9 @@ export default function MessageInput() {
       stopTyping();
     }
 
+    // 下書き自動保存 (debounced)
+    scheduleDraftSave(el.innerHTML, raw);
+
     const textBefore = getTextBeforeCaret(el);
     const atMatch = textBefore.match(/@(\w*)$/);
     if (atMatch) {
@@ -616,7 +676,8 @@ export default function MessageInput() {
     setSending(true);
     lastSentAtRef.current = now;
     stopTyping(); // タイピング停止
-    el.innerHTML = '';
+    clearDraft(); // 下書きを削除
+    el.textContent = '';
     setIsEmpty(true);
     setCharCount(0);
     setAttachedFiles([]);
@@ -625,7 +686,11 @@ export default function MessageInput() {
       await sendMessage(activeChannelId, markdown, user, mentions, dmOtherUser?.uid);
     } catch (err) {
       console.error('Send error:', err);
-      el.innerHTML = html;
+      // Restore content on failure
+      el.textContent = '';
+      Array.from(new DOMParser().parseFromString(html, 'text/html').body.childNodes).forEach((node) => {
+        el.appendChild(document.importNode(node, true));
+      });
       setIsEmpty(false);
       toast.error('メッセージの送信に失敗しました');
     } finally {

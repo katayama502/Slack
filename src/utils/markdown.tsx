@@ -97,7 +97,7 @@ function isSafeUrl(url: string): boolean {
 
 function renderInline(text: string): React.ReactNode[] {
   const pattern =
-    /(@\[[^\]]+\]\([^)]+\))|(\[([^\]]+)\]\((https?:\/\/[^\s)]+)\))|(https?:\/\/[^\s<>"]+[^\s<>".,;!?()'\]])|(?<!\w)\*([^\s*](?:[^*\n]*[^\s*])?)\*(?!\w)|(?<!\w)_([^\s_](?:[^_\n]*[^\s_])?)_(?!\w)|(?<!\w)~([^\s~](?:[^~\n]*[^\s~])?)~(?!\w)|`([^`\n]+)`|(?<!\w)#([a-z][a-zA-Z0-9_-]*)(?!\w)/g;
+    /(@\[[^\]]+\]\([^)]+\))|(@(?:channel|here|everyone))|(\[([^\]]+)\]\((https?:\/\/[^\s)]+)\))|(https?:\/\/[^\s<>"]+[^\s<>".,;!?()'\]])|(?<!\w)\*([^\s*](?:[^*\n]*[^\s*])?)\*(?!\w)|(?<!\w)_([^\s_](?:[^_\n]*[^\s_])?)_(?!\w)|(?<!\w)~([^\s~](?:[^~\n]*[^\s~])?)~(?!\w)|`([^`\n]+)`|(?<!\w)#([a-z][a-zA-Z0-9_-]*)(?!\w)/g;
 
   const nodes: React.ReactNode[] = [];
   let lastIndex = 0;
@@ -111,7 +111,7 @@ function renderInline(text: string): React.ReactNode[] {
     const key = match.index;
 
     if (match[1]) {
-      // @mention
+      // @[name](uid) personal mention
       const nameMatch = match[1].match(/^@\[([^\]]+)\]/);
       const name = nameMatch ? nameMatch[1] : match[1];
       nodes.push(
@@ -130,8 +130,26 @@ function renderInline(text: string): React.ReactNode[] {
         </span>
       );
     } else if (match[2]) {
-      const linkText = match[3];
-      const linkUrl = match[4];
+      // @channel / @here / @everyone special mention
+      const keyword = match[2].slice(1); // remove leading @
+      nodes.push(
+        <span
+          key={key}
+          style={{
+            color: '#7C4E00',
+            background: 'rgba(248,185,0,0.2)',
+            borderRadius: '3px',
+            padding: '0 3px',
+            fontWeight: 700,
+            cursor: 'pointer',
+          }}
+        >
+          @{keyword}
+        </span>
+      );
+    } else if (match[3]) {
+      const linkText = match[4];
+      const linkUrl = match[5];
       nodes.push(
         isSafeUrl(linkUrl) ? (
           <a
@@ -150,8 +168,8 @@ function renderInline(text: string): React.ReactNode[] {
           <span key={key}>{linkText}</span>
         )
       );
-    } else if (match[5]) {
-      const rawUrl = match[5];
+    } else if (match[6]) {
+      const rawUrl = match[6];
       nodes.push(
         <a
           key={key}
@@ -166,13 +184,13 @@ function renderInline(text: string): React.ReactNode[] {
           {rawUrl}
         </a>
       );
-    } else if (match[6] !== undefined) {
-      nodes.push(<strong key={key} style={{ fontWeight: 700 }}>{match[6]}</strong>);
     } else if (match[7] !== undefined) {
-      nodes.push(<em key={key} style={{ fontStyle: 'italic' }}>{match[7]}</em>);
+      nodes.push(<strong key={key} style={{ fontWeight: 700 }}>{match[7]}</strong>);
     } else if (match[8] !== undefined) {
-      nodes.push(<s key={key}>{match[8]}</s>);
+      nodes.push(<em key={key} style={{ fontStyle: 'italic' }}>{match[8]}</em>);
     } else if (match[9] !== undefined) {
+      nodes.push(<s key={key}>{match[9]}</s>);
+    } else if (match[10] !== undefined) {
       nodes.push(
         <code
           key={key}
@@ -187,10 +205,10 @@ function renderInline(text: string): React.ReactNode[] {
             lineHeight: 1.4,
           }}
         >
-          {match[9]}
+          {match[10]}
         </code>
       );
-    } else if (match[10] !== undefined) {
+    } else if (match[11] !== undefined) {
       // #channel-name mention
       nodes.push(
         <span
@@ -204,7 +222,7 @@ function renderInline(text: string): React.ReactNode[] {
             cursor: 'pointer',
           }}
         >
-          #{match[10]}
+          #{match[11]}
         </span>
       );
     }

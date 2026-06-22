@@ -1,5 +1,23 @@
 import { create } from 'zustand';
-import type { AppStore, User, Channel, Message, Thread, Notification, SavedMessage } from '../types';
+import type { AppStore, User, Channel, Message, Thread, Notification, SavedMessage, Draft } from '../types';
+
+// ── Draft localStorage helpers ────────────────────────────────────────────────
+const DRAFTS_KEY = 'slack_clone_drafts';
+function loadDraftsFromStorage(): Record<string, Draft> {
+  try {
+    const raw = localStorage.getItem(DRAFTS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+function saveDraftsToStorage(drafts: Record<string, Draft>) {
+  try {
+    localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+  } catch {
+    // ignore quota errors
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 拡張型: タスク要件の追加フィールド・アクションを補完する
@@ -29,6 +47,13 @@ interface ExtendedStore extends AppStore {
   // チャンネルメッセージのローディング状態
   channelLoading: boolean
   setChannelLoading: (loading: boolean) => void
+
+  // スレッドパネル
+  threadsPanelOpen: boolean
+  setThreadsPanelOpen: (open: boolean) => void
+
+  // Drafts (already defined in AppStore but repeated here for clarity)
+  _draftsLoaded: boolean
 }
 
 export const useAppStore = create<ExtendedStore>((set, _get) => ({
@@ -183,6 +208,8 @@ export const useAppStore = create<ExtendedStore>((set, _get) => ({
   searchQuery: '',
   notificationsPanelOpen: false,
   savedItemsPanelOpen: false,
+  draftsPanelOpen: false,
+  threadsPanelOpen: false,
   editingMessageId: null,
   setSidebarOpen: (open: boolean) => set({ sidebarOpen: open }),
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
@@ -198,8 +225,39 @@ export const useAppStore = create<ExtendedStore>((set, _get) => ({
     set({ threadPanelMessageId: null, activeThreadMessageId: null }),
   setSearchQuery: (searchQuery: string) => set({ searchQuery }),
   setNotificationsPanelOpen: (notificationsPanelOpen: boolean) =>
-    set({ notificationsPanelOpen, ...(notificationsPanelOpen ? { savedItemsPanelOpen: false } : {}) }),
+    set({ notificationsPanelOpen, ...(notificationsPanelOpen ? { savedItemsPanelOpen: false, draftsPanelOpen: false, threadsPanelOpen: false } : {}) }),
   setSavedItemsPanelOpen: (savedItemsPanelOpen: boolean) =>
-    set({ savedItemsPanelOpen, ...(savedItemsPanelOpen ? { notificationsPanelOpen: false } : {}) }),
+    set({ savedItemsPanelOpen, ...(savedItemsPanelOpen ? { notificationsPanelOpen: false, draftsPanelOpen: false, threadsPanelOpen: false } : {}) }),
+  setDraftsPanelOpen: (draftsPanelOpen: boolean) =>
+    set({ draftsPanelOpen, ...(draftsPanelOpen ? { notificationsPanelOpen: false, savedItemsPanelOpen: false, threadsPanelOpen: false } : {}) }),
+  setThreadsPanelOpen: (threadsPanelOpen: boolean) =>
+    set({ threadsPanelOpen, ...(threadsPanelOpen ? { notificationsPanelOpen: false, savedItemsPanelOpen: false, draftsPanelOpen: false } : {}) }),
   setEditingMessageId: (editingMessageId: string | null) => set({ editingMessageId }),
+
+  // ── Drafts ────────────────────────────────────────────────────────────────
+  drafts: loadDraftsFromStorage(),
+  _draftsLoaded: true,
+  saveDraft: (channelId: string, html: string, text: string) =>
+    set((state) => {
+      const trimmed = text.replace(/\n/g, '').trim();
+      let nextDrafts: Record<string, Draft>;
+      if (!trimmed) {
+        // Empty content → remove draft
+        const { [channelId]: _removed, ...rest } = state.drafts;
+        nextDrafts = rest;
+      } else {
+        nextDrafts = {
+          ...state.drafts,
+          [channelId]: { channelId, html, text: trimmed, savedAt: Date.now() },
+        };
+      }
+      saveDraftsToStorage(nextDrafts);
+      return { drafts: nextDrafts };
+    }),
+  deleteDraft: (channelId: string) =>
+    set((state) => {
+      const { [channelId]: _removed, ...rest } = state.drafts;
+      saveDraftsToStorage(rest);
+      return { drafts: rest };
+    }),
 }));

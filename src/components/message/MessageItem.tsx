@@ -402,6 +402,9 @@ function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' 
     }
   };
 
+  // Check if current user is mentioned in this message
+  const isMentioned = !!(user?.uid && message.mentions?.includes(user.uid));
+
   return (
     <div
       role="article"
@@ -409,7 +412,13 @@ function MessageItemInner({ message, isCompact, onThreadClick, searchQuery = '' 
       className={`relative group flex gap-3 transition-colors ${
         isCompact ? 'px-5 py-[1px]' : 'px-5 pt-[6px] pb-[2px]'
       }`}
-      style={{ background: showActions ? 'rgba(29,28,29,0.04)' : 'transparent' }}
+      style={{
+        background: isMentioned
+          ? showActions ? '#FFF3CD' : '#FFF9E6'
+          : showActions ? 'rgba(29,28,29,0.04)' : 'transparent',
+        borderLeft: isMentioned ? '3px solid #E8A838' : '3px solid transparent',
+        paddingLeft: isMentioned ? '17px' : undefined,
+      }}
       onMouseEnter={() => setShowActions(true)}
       onMouseLeave={() => { setShowActions(false); }}
     >

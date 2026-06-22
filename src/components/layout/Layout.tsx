@@ -11,6 +11,8 @@ import TypingIndicator from '../message/TypingIndicator';
 import ThreadPanel from '../thread/ThreadPanel';
 import NotificationsPanel from '../notifications/NotificationsPanel';
 import SavedItemsPanel from '../saved/SavedItemsPanel';
+import DraftsPanel from '../drafts/DraftsPanel';
+import ThreadsPanel from '../threads/ThreadsPanel';
 import QuickSwitcher from '../ui/QuickSwitcher';
 import { ToastContainer } from '../ui/Toast';
 
@@ -86,6 +88,9 @@ export default function Layout() {
   const activeChannelId = useAppStore((s) => s.activeChannelId);
   const notificationsPanelOpen = useAppStore((s) => s.notificationsPanelOpen);
   const savedItemsPanelOpen = useAppStore((s) => s.savedItemsPanelOpen);
+  const draftsPanelOpen = useAppStore((s) => s.draftsPanelOpen);
+  const threadsPanelOpen = useAppStore((s) => (s as any).threadsPanelOpen as boolean);
+  const setThreadsPanelOpen = useAppStore((s) => (s as any).setThreadsPanelOpen as (v: boolean) => void);
   const mobileSidebarOpen = useAppStore((s) => s.mobileSidebarOpen);
   const setMobileSidebarOpen = useAppStore((s) => s.setMobileSidebarOpen);
   const setActiveChannel = useAppStore((s) => s.setActiveChannel);
@@ -94,11 +99,12 @@ export default function Layout() {
   const closeThreadPanel = useAppStore((s) => s.closeThreadPanel);
   const setNotificationsPanelOpen = useAppStore((s) => s.setNotificationsPanelOpen);
   const setSavedItemsPanelOpen = useAppStore((s) => s.setSavedItemsPanelOpen);
+  const setDraftsPanelOpen = useAppStore((s) => s.setDraftsPanelOpen);
   const setSearchQuery = useAppStore((s) => s.setSearchQuery);
   const setJumpToMessageId = useAppStore((s) => s.setJumpToMessageId);
   const unreadChannels = useUnreadChannels();
 
-  const rightPanel = threadPanelMessageId || notificationsPanelOpen || savedItemsPanelOpen;
+  const rightPanel = threadPanelMessageId || notificationsPanelOpen || savedItemsPanelOpen || draftsPanelOpen || threadsPanelOpen;
 
   // Document title: show unread count badge
   useEffect(() => {
@@ -147,6 +153,8 @@ export default function Layout() {
         if (threadPanelMessageId) { closeThreadPanel(); return; }
         if (notificationsPanelOpen) { setNotificationsPanelOpen(false); return; }
         if (savedItemsPanelOpen) { setSavedItemsPanelOpen(false); return; }
+        if (draftsPanelOpen) { setDraftsPanelOpen(false); return; }
+        if (threadsPanelOpen) { setThreadsPanelOpen(false); return; }
       }
 
       // Ctrl+F → search in channel
@@ -172,7 +180,7 @@ export default function Layout() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [quickSwitcherOpen, shortcutOpen, threadPanelMessageId, notificationsPanelOpen, savedItemsPanelOpen, closeThreadPanel, setNotificationsPanelOpen, setSavedItemsPanelOpen, setSearchQuery]);
+  }, [quickSwitcherOpen, shortcutOpen, threadPanelMessageId, notificationsPanelOpen, savedItemsPanelOpen, draftsPanelOpen, closeThreadPanel, setNotificationsPanelOpen, setSavedItemsPanelOpen, setDraftsPanelOpen, setSearchQuery]);
 
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT);
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_DEFAULT);
@@ -239,7 +247,16 @@ export default function Layout() {
   }, []);
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex flex-col h-screen overflow-hidden">
+
+      {/* ── Global purple header bar ── */}
+      <GlobalHeader
+        onSearchClick={() => setQuickSwitcherOpen(true)}
+        quickSwitcherOpen={quickSwitcherOpen}
+        isMobile={isMobile}
+      />
+
+      <div className="flex flex-1 overflow-hidden">
 
       {/* ── Desktop NavRail (left, 56px) ── */}
       {!isMobile && <NavRail />}
@@ -350,8 +367,12 @@ export default function Layout() {
             >
               {threadPanelMessageId
                 ? <ThreadPanel />
+                : threadsPanelOpen
+                ? <ThreadsPanel />
                 : savedItemsPanelOpen
                 ? <SavedItemsPanel />
+                : draftsPanelOpen
+                ? <DraftsPanel />
                 : <NotificationsPanel />}
             </div>
           )}
@@ -363,8 +384,12 @@ export default function Layout() {
             >
               {threadPanelMessageId
                 ? <ThreadPanel />
+                : threadsPanelOpen
+                ? <ThreadsPanel />
                 : savedItemsPanelOpen
                 ? <SavedItemsPanel />
+                : draftsPanelOpen
+                ? <DraftsPanel />
                 : <NotificationsPanel />}
             </aside>
           )}
@@ -387,6 +412,135 @@ export default function Layout() {
 
       {/* Global toast notifications */}
       <ToastContainer />
+      </div>{/* end inner flex row */}
+    </div>
+  );
+}
+
+// ── Global purple header bar ──────────────────────────────────────────────────
+function GlobalHeader({
+  onSearchClick,
+  quickSwitcherOpen,
+  isMobile,
+}: {
+  onSearchClick: () => void;
+  quickSwitcherOpen: boolean;
+  isMobile: boolean;
+}) {
+  const [canGoBack, setCanGoBack] = useState(false);
+  const [canGoForward, setCanGoForward] = useState(false);
+
+  useEffect(() => {
+    const update = () => {
+      setCanGoBack(window.history.length > 1);
+    };
+    update();
+    window.addEventListener('popstate', update);
+    return () => window.removeEventListener('popstate', update);
+  }, []);
+
+  const handleBack = () => {
+    window.history.back();
+    setTimeout(() => setCanGoForward(true), 50);
+  };
+
+  const handleForward = () => {
+    window.history.forward();
+    setTimeout(() => setCanGoForward(false), 50);
+  };
+
+  return (
+    <div
+      className="flex items-center flex-shrink-0 px-3 gap-2 z-20"
+      style={{
+        height: isMobile ? '48px' : '40px',
+        background: '#350D36',
+        borderBottom: '1px solid rgba(0,0,0,0.2)',
+      }}
+    >
+      {/* History navigation arrows (desktop only) */}
+      {!isMobile && (
+        <div className="flex items-center gap-0.5 flex-shrink-0">
+          <button
+            onClick={handleBack}
+            title="戻る"
+            disabled={!canGoBack}
+            className="w-7 h-7 flex items-center justify-center rounded transition-colors"
+            style={{
+              color: canGoBack ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.3)',
+              cursor: canGoBack ? 'pointer' : 'default',
+            }}
+            onMouseEnter={(e) => { if (canGoBack) e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <button
+            onClick={handleForward}
+            title="進む"
+            disabled={!canGoForward}
+            className="w-7 h-7 flex items-center justify-center rounded transition-colors"
+            style={{
+              color: canGoForward ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.3)',
+              cursor: canGoForward ? 'pointer' : 'default',
+            }}
+            onMouseEnter={(e) => { if (canGoForward) e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
+      )}
+
+      {/* Global search box (center, full width) */}
+      <div className="flex-1 flex justify-center px-4 min-w-0">
+        <button
+          onClick={onSearchClick}
+          className="w-full max-w-xl flex items-center gap-2 px-3 py-1 rounded transition-colors text-left"
+          style={{
+            background: quickSwitcherOpen ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.1)',
+            border: quickSwitcherOpen ? '1px solid rgba(255,255,255,0.5)' : '1px solid rgba(255,255,255,0.2)',
+            height: '28px',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = quickSwitcherOpen ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.1)'; }}
+        >
+          <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"
+            style={{ color: 'rgba(255,255,255,0.6)' }}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+          </svg>
+          <span className="text-[13px] truncate" style={{ color: 'rgba(255,255,255,0.6)' }}>
+            Creatte を検索する
+          </span>
+          <kbd
+            className="ml-auto text-[10px] px-1 py-0.5 rounded flex-shrink-0"
+            style={{
+              background: 'rgba(255,255,255,0.1)',
+              border: '1px solid rgba(255,255,255,0.2)',
+              color: 'rgba(255,255,255,0.5)',
+              fontFamily: 'monospace',
+              lineHeight: 1.2,
+            }}
+          >
+            ⌘K
+          </kbd>
+        </button>
+      </div>
+
+      {/* Help / question mark button */}
+      <button
+        title="ヘルプ"
+        className="w-7 h-7 flex-shrink-0 flex items-center justify-center rounded-full transition-colors"
+        style={{ color: 'rgba(255,255,255,0.7)', border: '1.5px solid rgba(255,255,255,0.4)' }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = '#FFFFFF'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(255,255,255,0.7)'; }}
+      >
+        <span className="text-[12px] font-bold leading-none">?</span>
+      </button>
     </div>
   );
 }

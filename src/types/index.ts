@@ -107,6 +107,16 @@ export interface SavedMessage {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Draft  (in-memory only, persisted to localStorage)
+// ─────────────────────────────────────────────────────────────────────────────
+export interface Draft {
+  channelId: string;
+  html: string;       // raw innerHTML of the editor
+  text: string;       // plain-text preview
+  savedAt: number;    // Date.now()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // TypingUser  (channels/{channelId}/typing/{uid})
 // ─────────────────────────────────────────────────────────────────────────────
 export interface TypingUser {
@@ -179,12 +189,17 @@ export interface AppStore {
   searchQuery: string;
   notificationsPanelOpen: boolean;
   savedItemsPanelOpen: boolean;
+  draftsPanelOpen: boolean;
   editingMessageId: string | null;
+  drafts: Record<string, Draft>;  // channelId → Draft
   setSidebarOpen: (open: boolean) => void;
   openThreadPanel: (messageId: string) => void;
   closeThreadPanel: () => void;
   setSearchQuery: (q: string) => void;
   setNotificationsPanelOpen: (open: boolean) => void;
   setSavedItemsPanelOpen: (open: boolean) => void;
+  setDraftsPanelOpen: (open: boolean) => void;
   setEditingMessageId: (id: string | null) => void;
+  saveDraft: (channelId: string, html: string, text: string) => void;
+  deleteDraft: (channelId: string) => void;
 }
