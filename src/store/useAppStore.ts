@@ -19,6 +19,50 @@ function saveDraftsToStorage(drafts: Record<string, Draft>) {
   }
 }
 
+// ── Generic localStorage JSON helpers ─────────────────────────────────────────
+function loadLS<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+function saveLS(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // ignore quota / privacy-mode errors
+  }
+}
+
+/** 左のタブレール（ホーム / DM / アクティビティ / ファイル / 後で / その他） */
+export type NavTab = 'home' | 'dms' | 'activity' | 'files' | 'later';
+/** メインペインの表示内容 */
+export type MainView = 'channel' | 'threads' | 'drafts' | 'directory' | 'huddles' | 'slackbot';
+/** チャンネルヘッダー下のタブ */
+export type ChannelTab = 'messages' | 'pins' | 'files';
+/** チャンネル単位の通知設定 */
+export type ChannelNotifPref = 'all' | 'mentions' | 'off';
+/** サイドバーテーマ */
+export type ThemeId = 'crimson' | 'aubergine' | 'midnight' | 'forest';
+
+const THEME_KEY = 'slack_clone_theme';
+const STARRED_KEY = 'slack_clone_starred';
+const NOTIF_PREFS_KEY = 'slack_clone_channel_notif';
+const PAUSED_KEY = 'slack_clone_notif_paused';
+const LATER_DONE_KEY = 'slack_clone_later_done';
+
+function applyTheme(theme: ThemeId) {
+  try {
+    document.documentElement.dataset.theme = theme;
+  } catch {
+    // SSR / test env
+  }
+}
+const initialTheme = loadLS<ThemeId>(THEME_KEY, 'crimson');
+applyTheme(initialTheme);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 拡張型: タスク要件の追加フィールド・アクションを補完する
 // ─────────────────────────────────────────────────────────────────────────────
@@ -54,6 +98,44 @@ interface ExtendedStore extends AppStore {
 
   // Drafts (already defined in AppStore but repeated here for clarity)
   _draftsLoaded: boolean
+
+  // ── Slack 風ナビゲーション ─────────────────────────────────────────────────
+  navTab: NavTab
+  setNavTab: (tab: NavTab) => void
+  mainView: MainView
+  setMainView: (view: MainView) => void
+  channelTab: ChannelTab
+  setChannelTab: (tab: ChannelTab) => void
+
+  // チャンネル移動履歴（ヘッダーの ← → と 🕘 用）
+  navHistory: string[]
+  navIndex: number
+  navBack: () => void
+  navForward: () => void
+
+  // スター付きチャンネル（localStorage 永続化）
+  starredChannelIds: string[]
+  toggleStarChannel: (channelId: string) => void
+
+  // チャンネル通知設定（localStorage 永続化）
+  channelNotifPrefs: Record<string, ChannelNotifPref>
+  setChannelNotifPref: (channelId: string, pref: ChannelNotifPref) => void
+
+  // 通知の一時停止（デスクトップ通知を抑止）
+  notificationsPaused: boolean
+  setNotificationsPaused: (paused: boolean) => void
+
+  // テーマ
+  theme: ThemeId
+  setTheme: (theme: ThemeId) => void
+
+  // 「後で」タブで完了にしたメッセージ ID
+  laterDoneIds: string[]
+  toggleLaterDone: (messageId: string) => void
+
+  // キーボードショートカット一覧モーダル
+  shortcutsOpen: boolean
+  setShortcutsOpen: (open: boolean) => void
 }
 
 export const useAppStore = create<ExtendedStore>((set, _get) => ({
@@ -86,7 +168,19 @@ export const useAppStore = create<ExtendedStore>((set, _get) => ({
   activeChannelId: null,
   setChannels: (channels: Channel[]) => set({ channels }),
   setActiveChannel: (channelId: string | null) =>
-    set({ activeChannelId: channelId }),
+    set((state) => {
+      if (!channelId) return { activeChannelId: null };
+      // 履歴: 現在位置より先を捨てて push（同一チャンネルの連続は無視）
+      const base = state.navHistory.slice(0, state.navIndex + 1);
+      const navHistory = base[base.length - 1] === channelId ? base : [...base, channelId].slice(-50);
+      return {
+        activeChannelId: channelId,
+        mainView: 'channel',
+        channelTab: state.activeChannelId === channelId ? state.channelTab : 'messages',
+        navHistory,
+        navIndex: navHistory.length - 1,
+      };
+    }),
   addChannel: (channel: Channel) =>
     set((state) => ({ channels: [...state.channels, channel] })),
   updateChannel: (channelId: string, data: Partial<Channel>) =>
@@ -233,6 +327,79 @@ export const useAppStore = create<ExtendedStore>((set, _get) => ({
   setThreadsPanelOpen: (threadsPanelOpen: boolean) =>
     set({ threadsPanelOpen, ...(threadsPanelOpen ? { notificationsPanelOpen: false, savedItemsPanelOpen: false, draftsPanelOpen: false } : {}) }),
   setEditingMessageId: (editingMessageId: string | null) => set({ editingMessageId }),
+
+  // ── Slack 風ナビゲーション ─────────────────────────────────────────────────
+  navTab: 'home',
+  setNavTab: (navTab) => set({ navTab }),
+  mainView: 'channel',
+  setMainView: (mainView) =>
+    set({
+      mainView,
+      threadsPanelOpen: false,
+      draftsPanelOpen: false,
+    }),
+  channelTab: 'messages',
+  setChannelTab: (channelTab) => set({ channelTab }),
+
+  navHistory: [],
+  navIndex: -1,
+  navBack: () =>
+    set((state) => {
+      if (state.navIndex <= 0) return {};
+      const navIndex = state.navIndex - 1;
+      return { navIndex, activeChannelId: state.navHistory[navIndex], mainView: 'channel', channelTab: 'messages' };
+    }),
+  navForward: () =>
+    set((state) => {
+      if (state.navIndex >= state.navHistory.length - 1) return {};
+      const navIndex = state.navIndex + 1;
+      return { navIndex, activeChannelId: state.navHistory[navIndex], mainView: 'channel', channelTab: 'messages' };
+    }),
+
+  starredChannelIds: loadLS<string[]>(STARRED_KEY, []),
+  toggleStarChannel: (channelId) =>
+    set((state) => {
+      const starredChannelIds = state.starredChannelIds.includes(channelId)
+        ? state.starredChannelIds.filter((id) => id !== channelId)
+        : [...state.starredChannelIds, channelId];
+      saveLS(STARRED_KEY, starredChannelIds);
+      return { starredChannelIds };
+    }),
+
+  channelNotifPrefs: loadLS<Record<string, ChannelNotifPref>>(NOTIF_PREFS_KEY, {}),
+  setChannelNotifPref: (channelId, pref) =>
+    set((state) => {
+      const channelNotifPrefs = { ...state.channelNotifPrefs, [channelId]: pref };
+      if (pref === 'all') delete channelNotifPrefs[channelId];
+      saveLS(NOTIF_PREFS_KEY, channelNotifPrefs);
+      return { channelNotifPrefs };
+    }),
+
+  notificationsPaused: loadLS<boolean>(PAUSED_KEY, false),
+  setNotificationsPaused: (notificationsPaused) => {
+    saveLS(PAUSED_KEY, notificationsPaused);
+    set({ notificationsPaused });
+  },
+
+  theme: initialTheme,
+  setTheme: (theme) => {
+    saveLS(THEME_KEY, theme);
+    applyTheme(theme);
+    set({ theme });
+  },
+
+  laterDoneIds: loadLS<string[]>(LATER_DONE_KEY, []),
+  toggleLaterDone: (messageId) =>
+    set((state) => {
+      const laterDoneIds = state.laterDoneIds.includes(messageId)
+        ? state.laterDoneIds.filter((id) => id !== messageId)
+        : [...state.laterDoneIds, messageId];
+      saveLS(LATER_DONE_KEY, laterDoneIds);
+      return { laterDoneIds };
+    }),
+
+  shortcutsOpen: false,
+  setShortcutsOpen: (shortcutsOpen) => set({ shortcutsOpen }),
 
   // ── Drafts ────────────────────────────────────────────────────────────────
   drafts: loadDraftsFromStorage(),

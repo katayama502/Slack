@@ -236,6 +236,8 @@ export async function joinChannelIfNeeded(channelId: string, uid: string): Promi
   if (!snap.exists()) return;
   const members: string[] = snap.data().members ?? [];
   if (members.includes(uid)) return;
+  // プライベートチャンネル・DM には自動参加しない（招待制）
+  if (snap.data().isPrivate || snap.data().isDM) return;
   await updateDoc(doc(db, 'channels', channelId), {
     members: arrayUnion(uid),
   });
@@ -244,7 +246,8 @@ export async function joinChannelIfNeeded(channelId: string, uid: string): Promi
 export async function createChannel(
   name: string,
   description: string,
-  uid: string
+  uid: string,
+  isPrivate = false
 ): Promise<Channel> {
   const ref = await addDoc(collection(db, 'channels'), {
     name,
@@ -252,6 +255,7 @@ export async function createChannel(
     createdBy: uid,
     createdAt: serverTimestamp(),
     members: [uid],
+    isPrivate,
   });
   return {
     id: ref.id,
@@ -260,6 +264,7 @@ export async function createChannel(
     createdBy: uid,
     createdAt: Timestamp.now(),
     members: [uid],
+    isPrivate,
   };
 }
 
@@ -344,6 +349,18 @@ export async function sendMessage(
       }).catch(() => {})
     )
   );
+}
+
+/** メッセージのピン留め / 解除（チャンネルメンバーなら誰でも可） */
+export async function setMessagePinned(
+  channelId: string,
+  messageId: string,
+  pinned: boolean,
+  uid: string
+): Promise<void> {
+  await updateDoc(doc(db, 'channels', channelId, 'messages', messageId), pinned
+    ? { pinned: true, pinnedBy: uid, pinnedAt: serverTimestamp() }
+    : { pinned: false, pinnedBy: null, pinnedAt: null });
 }
 
 export async function updateMessage(

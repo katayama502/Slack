@@ -38,6 +38,7 @@ service cloud.firestore {
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'description', 'members'])
         ) || (
           !resource.data.get('isDM', false) &&
+          !resource.data.get('isPrivate', false) &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members']) &&
           request.resource.data.members.hasAll(resource.data.members) &&
           request.resource.data.members.size() == resource.data.members.size() + 1 &&
@@ -87,7 +88,7 @@ service cloud.firestore {
           ||
           (
             isChannelMember(channelId) &&
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions', 'pinned', 'pinnedBy', 'pinnedAt'])
           )
         );
 

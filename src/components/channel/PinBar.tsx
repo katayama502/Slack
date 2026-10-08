@@ -1,243 +1,186 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// ブックマークバー（Slack 準拠）: タブ行の下に表示される 32px の細い行。
+// データは channels/{id}/pins コレクション（既存の Pin 型）を使用。
+// ブックマークが無い場合は何も描画しない（'open-add-bookmark' イベントで追加フォームを開く）。
+// ─────────────────────────────────────────────────────────────────────────────
 import { useState, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { useAppStore } from '../../store/useAppStore';
 import { subscribeToPins, addPin, deletePin, updatePin } from '../../services';
+import { toast } from '../ui/Toast';
+import { LinkIcon, PlusIcon, PencilIcon, TrashIcon, CopyIcon } from '../ui/icons';
 import type { Pin } from '../../types';
 
-// ─── Folder icon ─────────────────────────────────────────────────────────────
-function FolderIcon({ className = 'w-3.5 h-3.5' }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round"
-        d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v8.25" />
-    </svg>
-  );
+function normalizeUrl(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const u = new URL(withScheme);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    return u.toString();
+  } catch {
+    return null;
+  }
 }
 
-// ─── Add pin form (inline) ────────────────────────────────────────────────────
-function AddPinForm({
+function safeOpen(url: string) {
+  const n = normalizeUrl(url);
+  if (n) window.open(n, '_blank', 'noopener,noreferrer');
+  else toast.error('このリンクは開けません');
+}
+
+// ─── Bookmark form (popover) ─────────────────────────────────────────────────
+function BookmarkForm({
+  anchor,
+  initial,
+  title,
   onSave,
   onCancel,
 }: {
+  anchor: DOMRect | null;
+  initial?: { name: string; url: string };
+  title: string;
   onSave: (name: string, url: string) => void;
   onCancel: () => void;
 }) {
-  const [name, setName] = useState('');
-  const [url, setUrl] = useState('');
-  const nameRef = useRef<HTMLInputElement>(null);
+  const [url, setUrl] = useState(initial?.url ?? '');
+  const [name, setName] = useState(initial?.name ?? '');
+  const urlRef = useRef<HTMLInputElement>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    nameRef.current?.focus();
-  }, []);
+    urlRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onCancel]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    const trimName = name.trim();
-    const trimUrl = url.trim();
-    if (!trimName || !trimUrl) return;
-    const normalized = /^https?:\/\//i.test(trimUrl) ? trimUrl : `https://${trimUrl}`;
-    onSave(trimName, normalized);
+    const normalized = normalizeUrl(url);
+    if (!normalized) { setError('http(s) の URL を入力してください'); return; }
+    let label = name.trim();
+    if (!label) {
+      try { label = new URL(normalized).hostname; } catch { label = normalized; }
+    }
+    onSave(label.slice(0, 80), normalized);
   };
 
-  return (
-    <form
-      onSubmit={handleSubmit}
-      className="flex items-center gap-1.5 px-3 py-1.5 flex-shrink-0"
-      style={{
-        background: '#FFFFFF',
-        border: '1px solid #DDDDDD',
-        borderRadius: '6px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
-        minWidth: '320px',
-      }}
-    >
-      <input
-        ref={nameRef}
-        type="text"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="名前"
-        className="flex-shrink-0 text-[13px] text-[#1D1C1D] focus:outline-none"
-        style={{
-          width: '100px',
-          border: '1px solid #DDDDDD',
-          borderRadius: '4px',
-          padding: '3px 8px',
-        }}
-        onFocus={(e) => { e.currentTarget.style.borderColor = '#1D9BD1'; e.currentTarget.style.boxShadow = '0 0 0 1px #1D9BD1'; }}
-        onBlur={(e) => { e.currentTarget.style.borderColor = '#DDDDDD'; e.currentTarget.style.boxShadow = 'none'; }}
-      />
-      <input
-        type="text"
-        value={url}
-        onChange={(e) => setUrl(e.target.value)}
-        placeholder="URL (https://...)"
-        className="flex-1 text-[13px] text-[#1D1C1D] focus:outline-none"
-        style={{
-          minWidth: '140px',
-          border: '1px solid #DDDDDD',
-          borderRadius: '4px',
-          padding: '3px 8px',
-        }}
-        onFocus={(e) => { e.currentTarget.style.borderColor = '#1D9BD1'; e.currentTarget.style.boxShadow = '0 0 0 1px #1D9BD1'; }}
-        onBlur={(e) => { e.currentTarget.style.borderColor = '#DDDDDD'; e.currentTarget.style.boxShadow = 'none'; }}
-      />
-      <button
-        type="submit"
-        disabled={!name.trim() || !url.trim()}
-        className="px-3 py-1 rounded text-[13px] font-medium text-white transition-colors flex-shrink-0"
-        style={{
-          background: name.trim() && url.trim() ? '#007A5A' : '#DDDDDD',
-          color: name.trim() && url.trim() ? '#FFFFFF' : '#999999',
-          cursor: name.trim() && url.trim() ? 'pointer' : 'not-allowed',
-        }}
-      >
-        保存
-      </button>
-      <button
-        type="button"
-        onClick={onCancel}
-        className="px-2 py-1 rounded text-[13px] text-[#616061] flex-shrink-0"
-        onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; }}
-        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-      >
-        ×
-      </button>
-    </form>
-  );
-}
-
-// ─── Edit pin form (inline) ───────────────────────────────────────────────────
-function EditPinForm({
-  pin,
-  onSave,
-  onCancel,
-}: {
-  pin: Pin;
-  onSave: (name: string, url: string) => void;
-  onCancel: () => void;
-}) {
-  const [name, setName] = useState(pin.name);
-  const [url, setUrl] = useState(pin.url);
-  const nameRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    nameRef.current?.focus();
-    nameRef.current?.select();
-  }, []);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimName = name.trim();
-    const trimUrl = url.trim();
-    if (!trimName || !trimUrl) return;
-    const normalized = /^https?:\/\//i.test(trimUrl) ? trimUrl : `https://${trimUrl}`;
-    onSave(trimName, normalized);
-  };
-
-  return (
-    <form
-      onSubmit={handleSubmit}
-      className="flex items-center gap-1.5 px-3 py-1.5 flex-shrink-0"
-      style={{
-        background: '#FFFFFF',
-        border: '1px solid #1D9BD1',
-        borderRadius: '6px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
-        minWidth: '300px',
-      }}
-    >
-      <input
-        ref={nameRef}
-        type="text"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="名前"
-        className="flex-shrink-0 text-[13px] text-[#1D1C1D] focus:outline-none"
-        style={{ width: '100px', border: '1px solid #DDDDDD', borderRadius: '4px', padding: '3px 8px' }}
-      />
-      <input
-        type="text"
-        value={url}
-        onChange={(e) => setUrl(e.target.value)}
-        placeholder="URL"
-        className="flex-1 text-[13px] text-[#1D1C1D] focus:outline-none"
-        style={{ minWidth: '120px', border: '1px solid #DDDDDD', borderRadius: '4px', padding: '3px 8px' }}
-      />
-      <button type="submit" className="px-3 py-1 rounded text-[13px] font-medium text-white flex-shrink-0" style={{ background: '#007A5A' }}>保存</button>
-      <button
-        type="button"
-        onClick={onCancel}
-        className="px-2 py-1 rounded text-[13px] text-[#616061] flex-shrink-0"
-        onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; }}
-        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-      >×</button>
-    </form>
-  );
-}
-
-// ─── Delete confirm portal ────────────────────────────────────────────────────
-// Rendered into document.body to escape any overflow:hidden ancestors
-function DeleteConfirmPortal({
-  pinName,
-  anchorRect,
-  onConfirm,
-  onCancel,
-}: {
-  pinName: string;
-  anchorRect: DOMRect;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  const top = anchorRect.bottom + 4;
-  const left = anchorRect.left;
+  const top = anchor ? anchor.bottom + 4 : 120;
+  const left = anchor ? Math.max(8, Math.min(anchor.left, window.innerWidth - 368)) : 80;
 
   return ReactDOM.createPortal(
     <>
-      {/* Backdrop — click outside to cancel */}
-      <div
-        className="fixed inset-0"
-        style={{ zIndex: 9998 }}
-        onClick={onCancel}
-      />
-      {/* Confirm popover */}
-      <div
-        className="fixed px-3 py-2.5 flex flex-col gap-2"
+      <div className="fixed inset-0 z-40" onClick={onCancel} />
+      <form
+        onSubmit={submit}
+        className="fixed z-50 bg-white p-4 flex flex-col gap-3"
         style={{
           top,
           left,
-          zIndex: 9999,
-          background: '#FFFFFF',
-          border: '1px solid #DDDDDD',
-          borderRadius: '8px',
-          boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
-          minWidth: '180px',
+          width: 360,
+          maxWidth: 'calc(100vw - 16px)',
+          border: '1px solid var(--sk-border)',
+          borderRadius: 'var(--sk-radius-card)',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+          animation: 'popIn 120ms ease',
         }}
-        onClick={(e) => e.stopPropagation()}
       >
-        <p className="text-[13px] text-[#1D1C1D] font-medium leading-snug">
-          「{pinName}」を削除しますか？
-        </p>
-        <div className="flex gap-2">
+        <p className="text-[15px] font-black" style={{ color: 'var(--sk-text)' }}>{title}</p>
+        <label className="flex flex-col gap-1">
+          <span className="text-[13px] font-bold" style={{ color: 'var(--sk-text)' }}>リンク</span>
+          <input
+            ref={urlRef}
+            value={url}
+            onChange={(e) => { setUrl(e.target.value); setError(null); }}
+            placeholder="https://example.com"
+            className="h-[36px] px-2.5 text-[15px] rounded-md focus:outline-none"
+            style={{ border: `1px solid ${error ? 'var(--sk-red)' : 'var(--sk-border-strong)'}`, color: 'var(--sk-text)' }}
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[13px] font-bold" style={{ color: 'var(--sk-text)' }}>名前 <span className="font-normal" style={{ color: 'var(--sk-text-2)' }}>（任意）</span></span>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="ブックマークの名前"
+            maxLength={80}
+            className="h-[36px] px-2.5 text-[15px] rounded-md focus:outline-none"
+            style={{ border: '1px solid var(--sk-border-strong)', color: 'var(--sk-text)' }}
+          />
+        </label>
+        {error && <p className="text-[13px]" style={{ color: 'var(--sk-red)' }}>{error}</p>}
+        <div className="flex justify-end gap-2">
           <button
-            onClick={onConfirm}
-            className="flex-1 py-1.5 rounded text-[13px] font-semibold text-white transition-colors"
-            style={{ background: '#E01E5A' }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = '#C0195A'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = '#E01E5A'; }}
-          >
-            削除
-          </button>
-          <button
+            type="button"
             onClick={onCancel}
-            className="flex-1 py-1.5 rounded text-[13px] text-[#1D1C1D] transition-colors"
-            style={{ border: '1px solid #DDDDDD' }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = '#F8F8F8'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+            className="h-[32px] px-3 text-[13px] font-bold rounded-md bg-white hover:bg-[var(--sk-hover)]"
+            style={{ border: '1px solid var(--sk-border-strong)', color: 'var(--sk-text)' }}
           >
             キャンセル
           </button>
+          <button
+            type="submit"
+            disabled={!url.trim()}
+            className="h-[32px] px-3 text-[13px] font-bold rounded-md text-white disabled:opacity-50"
+            style={{ background: 'var(--sk-green)' }}
+          >
+            {initial ? '保存する' : '追加'}
+          </button>
         </div>
+      </form>
+    </>,
+    document.body
+  );
+}
+
+// ─── Bookmark context menu ───────────────────────────────────────────────────
+function BookmarkMenu({
+  anchor,
+  canEdit,
+  onEdit,
+  onCopy,
+  onDelete,
+  onClose,
+}: {
+  anchor: DOMRect;
+  canEdit: boolean;
+  onEdit: () => void;
+  onCopy: () => void;
+  onDelete: () => void;
+  onClose: () => void;
+}) {
+  const item = 'flex items-center gap-2 w-full h-[28px] px-4 text-[15px] text-left';
+  return ReactDOM.createPortal(
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} onContextMenu={(e) => { e.preventDefault(); onClose(); }} />
+      <div
+        role="menu"
+        className="fixed z-50 bg-white py-2"
+        style={{
+          top: anchor.bottom + 4,
+          left: Math.max(8, Math.min(anchor.left, window.innerWidth - 228)),
+          width: 220,
+          border: '1px solid var(--sk-border)',
+          borderRadius: 'var(--sk-radius-card)',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+        }}
+      >
+        <button role="menuitem" onClick={onCopy} className={`${item} text-[color:var(--sk-text)] hover:bg-[var(--sk-link)] hover:text-white`}>
+          <CopyIcon className="w-4 h-4" />リンクをコピー
+        </button>
+        {canEdit && (
+          <>
+            <button role="menuitem" onClick={onEdit} className={`${item} text-[color:var(--sk-text)] hover:bg-[var(--sk-link)] hover:text-white`}>
+              <PencilIcon className="w-4 h-4" />編集する
+            </button>
+            <div className="my-2" style={{ borderTop: '1px solid var(--sk-border)' }} />
+            <button role="menuitem" onClick={onDelete} className={`${item} text-[color:var(--sk-red)] hover:bg-[var(--sk-red)] hover:text-white`}>
+              <TrashIcon className="w-4 h-4" />削除する
+            </button>
+          </>
+        )}
       </div>
     </>,
     document.body
@@ -250,22 +193,17 @@ export default function PinBar() {
   const { user } = useAppStore((s) => s.auth);
 
   const [pins, setPins] = useState<Pin[]>([]);
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [editingPinId, setEditingPinId] = useState<string | null>(null);
-  const [hoveredPinId, setHoveredPinId] = useState<string | null>(null);
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
-  const [deleteAnchorRect, setDeleteAnchorRect] = useState<DOMRect | null>(null);
-  const [addError, setAddError] = useState<string | null>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const [form, setForm] = useState<{ mode: 'add' } | { mode: 'edit'; pin: Pin } | null>(null);
+  const [formAnchor, setFormAnchor] = useState<DOMRect | null>(null);
+  const [menu, setMenu] = useState<{ pin: Pin; anchor: DOMRect } | null>(null);
+  const barRef = useRef<HTMLDivElement>(null);
+  const addBtnRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!activeChannelId) return;
     setPins([]);
-    setShowAddForm(false);
-    setEditingPinId(null);
-    setDeleteConfirmId(null);
-    setDeleteAnchorRect(null);
-    setAddError(null);
+    setForm(null);
+    setMenu(null);
     const unsub = subscribeToPins(
       activeChannelId,
       setPins,
@@ -274,198 +212,124 @@ export default function PinBar() {
     return () => unsub();
   }, [activeChannelId]);
 
-  const handleAddPin = async (name: string, url: string) => {
-    if (!activeChannelId || !user) return;
-    setShowAddForm(false);
-    setAddError(null);
-    try {
-      await addPin(activeChannelId, name, url, user.uid, pins.length);
-    } catch (err) {
-      console.error('Add pin error:', err);
-      setAddError('ピンの追加に失敗しました');
-      setTimeout(() => setAddError(null), 3000);
-    }
-  };
-
-  const handleDeletePin = async (pinId: string) => {
-    if (!activeChannelId) return;
-    setDeleteConfirmId(null);
-    setDeleteAnchorRect(null);
-    try {
-      await deletePin(activeChannelId, pinId);
-    } catch (err) {
-      console.error('Delete pin error:', err);
-    }
-  };
-
-  const handleEditPin = async (pinId: string, name: string, url: string) => {
-    if (!activeChannelId) return;
-    setEditingPinId(null);
-    try {
-      await updatePin(activeChannelId, pinId, { name, url });
-    } catch (err) {
-      console.error('Update pin error:', err);
-    }
-  };
-
-  const openDeleteConfirm = (e: React.MouseEvent, pinId: string) => {
-    e.stopPropagation();
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    setDeleteConfirmId(pinId);
-    setDeleteAnchorRect(rect);
-  };
+  // ヘッダーの「+」から追加フォームを開く
+  useEffect(() => {
+    const handler = () => {
+      setMenu(null);
+      setForm({ mode: 'add' });
+      // バーが無い（ブックマーク 0 件）場合はメイン上部付近に表示
+      const rect = addBtnRef.current?.getBoundingClientRect() ?? barRef.current?.getBoundingClientRect() ?? null;
+      setFormAnchor(rect);
+    };
+    window.addEventListener('open-add-bookmark', handler);
+    return () => window.removeEventListener('open-add-bookmark', handler);
+  }, []);
 
   if (!activeChannelId) return null;
 
-  const confirmPin = deleteConfirmId ? pins.find((p) => p.id === deleteConfirmId) : null;
+  const handleSave = async (name: string, url: string) => {
+    if (!activeChannelId || !user || !form) return;
+    const current = form;
+    setForm(null);
+    try {
+      if (current.mode === 'add') {
+        await addPin(activeChannelId, name, url, user.uid, pins.length);
+        toast.success('ブックマークを追加しました');
+      } else {
+        await updatePin(activeChannelId, current.pin.id, { name, url });
+        toast.success('ブックマークを更新しました');
+      }
+    } catch (err) {
+      console.error('Bookmark save error:', err);
+      toast.error('ブックマークの保存に失敗しました');
+    }
+  };
+
+  const handleDelete = async (pin: Pin) => {
+    setMenu(null);
+    if (!window.confirm(`ブックマーク「${pin.name}」を削除しますか？`)) return;
+    try {
+      await deletePin(activeChannelId, pin.id);
+    } catch (err) {
+      console.error('Delete pin error:', err);
+      toast.error('削除に失敗しました');
+    }
+  };
+
+  const handleCopy = async (pin: Pin) => {
+    setMenu(null);
+    try {
+      await navigator.clipboard.writeText(pin.url);
+      toast.success('リンクをコピーしました');
+    } catch {
+      toast.error('リンクのコピーに失敗しました');
+    }
+  };
+
+  const formEl = form && (
+    <BookmarkForm
+      anchor={formAnchor}
+      title={form.mode === 'add' ? 'ブックマークを追加する' : 'ブックマークを編集する'}
+      initial={form.mode === 'edit' ? { name: form.pin.name, url: form.pin.url } : undefined}
+      onSave={handleSave}
+      onCancel={() => setForm(null)}
+    />
+  );
+
+  if (pins.length === 0) {
+    // バーは出さず、フォーム（ポータル）だけ表示
+    return <div ref={barRef} className="h-0 flex-shrink-0">{formEl}</div>;
+  }
 
   return (
     <div
-      className="flex-shrink-0 flex items-center"
-      style={{
-        borderBottom: '1px solid #E8E8E8',
-        background: '#FFFFFF',
-        minHeight: '38px',
-      }}
+      ref={barRef}
+      className="flex-shrink-0 flex items-center h-[32px] px-3 md:px-4 gap-0.5 bg-white overflow-x-auto"
+      style={{ borderBottom: '1px solid var(--sk-border)', scrollbarWidth: 'none' }}
     >
-      {/* Scrollable pin list */}
-      <div
-        ref={scrollRef}
-        className="flex items-center gap-0.5 px-2 overflow-x-auto flex-1"
-        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', minHeight: '38px' }}
+      {pins.map((pin) => {
+        const canEdit = user?.uid === pin.createdBy;
+        return (
+          <button
+            key={pin.id}
+            onClick={() => safeOpen(pin.url)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setMenu({ pin, anchor: e.currentTarget.getBoundingClientRect() });
+            }}
+            title={`${pin.name}\n${pin.url}${canEdit ? '\n右クリックで編集・削除' : ''}`}
+            className="flex items-center gap-1.5 h-[24px] px-2 rounded-md text-[13px] flex-shrink-0 hover:bg-[var(--sk-subtle)]"
+            style={{ color: 'var(--sk-text-2)' }}
+          >
+            <span className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0" style={{ background: 'var(--sk-subtle)', color: 'var(--sk-text-2)' }}>
+              <LinkIcon className="w-3 h-3" />
+            </span>
+            <span className="max-w-[160px] truncate" style={{ color: 'var(--sk-text)' }}>{pin.name}</span>
+          </button>
+        );
+      })}
+      <button
+        ref={addBtnRef}
+        onClick={(e) => { setForm({ mode: 'add' }); setFormAnchor(e.currentTarget.getBoundingClientRect()); }}
+        title="ブックマークを追加"
+        aria-label="ブックマークを追加"
+        className="w-[24px] h-[24px] flex items-center justify-center rounded-md flex-shrink-0 hover:bg-[var(--sk-subtle)]"
+        style={{ color: 'var(--sk-text-2)' }}
       >
-        {/* Static "メッセージ" tab */}
-        <button
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[13px] font-medium flex-shrink-0 transition-colors"
-          style={{ color: '#1D1C1D', background: 'rgba(29,28,29,0.08)' }}
-        >
-          <span
-            className="w-2 h-2 rounded-full flex-shrink-0"
-            style={{ background: '#1D1C1D' }}
-          />
-          メッセージ
-        </button>
+        <PlusIcon className="w-3.5 h-3.5" />
+      </button>
 
-        {/* User-defined pins */}
-        {pins.map((pin) => {
-          const isOwner = user?.uid === pin.createdBy;
-          const isEditing = editingPinId === pin.id;
-          const isDeleteConfirm = deleteConfirmId === pin.id;
-
-          if (isEditing) {
-            return (
-              <EditPinForm
-                key={pin.id}
-                pin={pin}
-                onSave={(name, url) => handleEditPin(pin.id, name, url)}
-                onCancel={() => setEditingPinId(null)}
-              />
-            );
-          }
-
-          const isHovered = hoveredPinId === pin.id;
-
-          return (
-            <div
-              key={pin.id}
-              className="relative flex-shrink-0"
-              onMouseEnter={() => setHoveredPinId(pin.id)}
-              onMouseLeave={() => setHoveredPinId(null)}
-            >
-              <div
-                className="flex items-center rounded-md transition-colors"
-                style={{
-                  background: isHovered || isDeleteConfirm ? '#F0F0F0' : 'transparent',
-                }}
-              >
-                {/* Main link */}
-                <button
-                  onClick={() => window.open(pin.url, '_blank', 'noopener,noreferrer')}
-                  title={pin.url}
-                  className="flex items-center gap-1.5 pl-3 pr-2 py-1.5 text-[13px] flex-shrink-0"
-                  style={{ color: isHovered || isDeleteConfirm ? '#1D1C1D' : '#616061' }}
-                >
-                  <FolderIcon className="w-3.5 h-3.5 flex-shrink-0" />
-                  <span className="max-w-[120px] truncate">{pin.name}</span>
-                </button>
-
-                {/* Edit / Delete — visible on hover (owner only) */}
-                {isOwner && isHovered && !isDeleteConfirm && (
-                  <div className="flex items-center gap-0.5 pr-1.5">
-                    <button
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={(e) => { e.stopPropagation(); setEditingPinId(pin.id); }}
-                      title="編集"
-                      className="w-5 h-5 flex items-center justify-center rounded transition-colors"
-                      style={{ color: '#616061' }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = '#DDDDDD'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                    >
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z" />
-                      </svg>
-                    </button>
-                    <button
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={(e) => openDeleteConfirm(e, pin.id)}
-                      title="削除"
-                      className="w-5 h-5 flex items-center justify-center rounded transition-colors"
-                      style={{ color: '#E01E5A' }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = '#FEE2E2'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                    >
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-
-        {/* Add form inline */}
-        {showAddForm && (
-          <AddPinForm
-            onSave={handleAddPin}
-            onCancel={() => setShowAddForm(false)}
-          />
-        )}
-      </div>
-
-      {/* Error toast */}
-      {addError && (
-        <span className="flex-shrink-0 text-[12px] px-2" style={{ color: '#E01E5A' }}>
-          {addError}
-        </span>
-      )}
-
-      {/* + button (always visible on right) */}
-      {!showAddForm && (
-        <button
-          onClick={() => setShowAddForm(true)}
-          title="ピンを追加"
-          className="flex-shrink-0 w-8 h-8 flex items-center justify-center transition-colors mr-1"
-          style={{ color: '#616061', borderLeft: '1px solid #E8E8E8' }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = '#F8F8F8'; e.currentTarget.style.color = '#1D1C1D'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#616061'; }}
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-        </button>
-      )}
-
-      {/* Delete confirm — rendered via portal to escape overflow:hidden ancestors */}
-      {confirmPin && deleteAnchorRect && (
-        <DeleteConfirmPortal
-          pinName={confirmPin.name}
-          anchorRect={deleteAnchorRect}
-          onConfirm={() => handleDeletePin(confirmPin.id)}
-          onCancel={() => { setDeleteConfirmId(null); setDeleteAnchorRect(null); }}
+      {menu && (
+        <BookmarkMenu
+          anchor={menu.anchor}
+          canEdit={user?.uid === menu.pin.createdBy}
+          onCopy={() => handleCopy(menu.pin)}
+          onEdit={() => { const p = menu.pin; setFormAnchor(menu.anchor); setMenu(null); setForm({ mode: 'edit', pin: p }); }}
+          onDelete={() => handleDelete(menu.pin)}
+          onClose={() => setMenu(null)}
         />
       )}
+      {formEl}
     </div>
   );
 }

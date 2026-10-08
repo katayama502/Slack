@@ -60,28 +60,28 @@ export function StatusPicker({
 
   return ReactDOM.createPortal(
     <>
-      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div className="fixed inset-0 z-[64]" onClick={onClose} />
       <div
-        className="fixed z-50 rounded-lg overflow-hidden"
+        className="fixed z-[65] rounded-lg overflow-hidden"
         style={{
           top: Math.min(top, window.innerHeight - 400),
           left,
           width: 300,
           background: '#FFFFFF',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
-          border: '1px solid #E8E8E8',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.12), 0 18px 48px rgba(0,0,0,0.12)',
+          border: '1px solid var(--sk-border)',
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-4 py-3" style={{ borderBottom: '1px solid #EEEEEE' }}>
-          <p className="text-[14px] font-bold text-[#1D1C1D]">ステータスを設定</p>
+        <div className="px-4 py-3" style={{ borderBottom: '1px solid var(--sk-border)' }}>
+          <p className="text-[18px] text-[var(--sk-text)]" style={{ fontWeight: 900 }}>ステータスを設定する</p>
         </div>
 
         {/* Custom input */}
         <div className="px-3 py-3">
           <div
             className="flex items-center gap-2 px-2 py-2 rounded"
-            style={{ border: '1px solid #DDDDDD' }}
+            style={{ border: '1px solid var(--sk-border-strong)', borderRadius: 8 }}
           >
             <button
               className="text-[20px] w-8 h-8 flex items-center justify-center rounded flex-shrink-0"
@@ -106,7 +106,7 @@ export function StatusPicker({
 
         {/* Presets */}
         <div className="px-3 pb-2">
-          <p className="text-[11px] font-semibold text-[#616061] mb-1.5 uppercase tracking-wide">よく使うステータス</p>
+          <p className="text-[13px] font-bold text-[var(--sk-text-2)] mb-1.5">おすすめ</p>
           <div className="flex flex-col gap-0.5">
             {PRESETS.map((p) => (
               <button
@@ -117,7 +117,7 @@ export function StatusPicker({
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
               >
                 <span className="text-[16px]">{p.emoji}</span>
-                <span className="text-[13px] text-[#1D1C1D]">{p.text}</span>
+                <span className="text-[15px] text-[var(--sk-text)]">{p.text}</span>
               </button>
             ))}
           </div>
@@ -126,7 +126,7 @@ export function StatusPicker({
         {/* Actions */}
         <div
           className="flex items-center justify-between px-3 py-2.5"
-          style={{ borderTop: '1px solid #EEEEEE' }}
+          style={{ borderTop: '1px solid var(--sk-border)' }}
         >
           {currentStatus && (
             <button
@@ -137,7 +137,7 @@ export function StatusPicker({
                 toast.success('ステータスをクリアしました');
                 onClose();
               }}
-              className="text-[12px] text-[#E01E5A] hover:underline"
+              className="text-[12px] text-[var(--sk-red)] hover:underline"
             >
               クリア
             </button>
@@ -145,7 +145,7 @@ export function StatusPicker({
           <div className="flex items-center gap-2 ml-auto">
             <button
               onClick={onClose}
-              className="px-3 py-1.5 text-[13px] text-[#1D1C1D] rounded border border-[#DDDDDD]"
+              className="px-3 py-1.5 text-[13px] text-[var(--sk-text)] rounded border border-[#DDDDDD]"
               onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
             >
@@ -155,7 +155,7 @@ export function StatusPicker({
               onClick={handleSave}
               disabled={saving}
               className="px-3 py-1.5 text-[13px] text-white rounded font-medium"
-              style={{ background: '#007A5A' }}
+              style={{ background: 'var(--sk-green)' }}
             >
               {saving ? '保存中...' : '保存'}
             </button>

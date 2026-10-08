@@ -34,39 +34,38 @@ export const toast = {
 };
 
 // ─── Toast container component ────────────────────────────────────────────────
-const COLORS: Record<ToastType, { bg: string; border: string; icon: React.ReactNode }> = {
-  error: {
-    bg: '#FFF0F0',
-    border: '#FFCDD2',
-    icon: (
-      <svg className="w-4 h-4 flex-shrink-0" style={{ color: '#E01E5A' }} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-      </svg>
-    ),
-  },
-  success: {
-    bg: '#F0FFF4',
-    border: '#BBF7D0',
-    icon: (
-      <svg className="w-4 h-4 flex-shrink-0" style={{ color: '#007A5A' }} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
-  },
-  info: {
-    bg: '#F0F8FF',
-    border: '#BFDBFE',
-    icon: (
-      <svg className="w-4 h-4 flex-shrink-0" style={{ color: '#1264A3' }} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
-      </svg>
-    ),
-  },
+// Slack 風: ダークなカード（#1D1C1D）+ 白文字 + 種別ごとのアクセントアイコン
+const ICON_COLOR: Record<ToastType, string> = {
+  error: '#F27EA0',
+  success: '#2BAC76',
+  info: '#36C5F0',
 };
+
+function ToastIcon({ type }: { type: ToastType }) {
+  const color = ICON_COLOR[type];
+  if (type === 'success') {
+    return (
+      <svg className="w-[18px] h-[18px] flex-shrink-0" viewBox="0 0 24 24" fill={color} aria-hidden="true">
+        <path d="M12 2.5a9.5 9.5 0 1 0 0 19 9.5 9.5 0 0 0 0-19Zm4.3 7.2-5 5.5a.9.9 0 0 1-1.3 0l-2.3-2.4a.9.9 0 1 1 1.3-1.2l1.6 1.7 4.4-4.8a.9.9 0 0 1 1.3 1.2Z" />
+      </svg>
+    );
+  }
+  if (type === 'error') {
+    return (
+      <svg className="w-[18px] h-[18px] flex-shrink-0" viewBox="0 0 24 24" fill={color} aria-hidden="true">
+        <path d="M12 2.5a9.5 9.5 0 1 0 0 19 9.5 9.5 0 0 0 0-19Zm0 4.75a.95.95 0 0 1 .95.95v4.6a.95.95 0 1 1-1.9 0V8.2a.95.95 0 0 1 .95-.95Zm0 10.1a1.15 1.15 0 1 1 0-2.3 1.15 1.15 0 0 1 0 2.3Z" />
+      </svg>
+    );
+  }
+  return (
+    <svg className="w-[18px] h-[18px] flex-shrink-0" viewBox="0 0 24 24" fill={color} aria-hidden="true">
+      <path d="M12 2.5a9.5 9.5 0 1 0 0 19 9.5 9.5 0 0 0 0-19Zm0 4.6a1.15 1.15 0 1 1 0 2.3 1.15 1.15 0 0 1 0-2.3Zm1 9.75a1 1 0 0 1-2 0v-5a1 1 0 0 1 2 0v5Z" />
+    </svg>
+  );
+}
 
 function ToastInner({ item, onDismiss }: { item: ToastItem; onDismiss: () => void }) {
   const [visible, setVisible] = useState(false);
-  const c = COLORS[item.type];
 
   useEffect(() => {
     requestAnimationFrame(() => setVisible(true));
@@ -74,24 +73,32 @@ function ToastInner({ item, onDismiss }: { item: ToastItem; onDismiss: () => voi
 
   return (
     <div
-      className="flex items-center gap-2.5 px-4 py-2.5 rounded-lg shadow-lg text-[13px] transition-all"
+      role={item.type === 'error' ? 'alert' : 'status'}
+      className="flex items-center gap-2.5 pl-3.5 pr-2 py-2.5 text-[14px]"
       style={{
-        background: c.bg,
-        border: `1px solid ${c.border}`,
-        color: '#1D1C1D',
-        maxWidth: '360px',
+        background: '#1D1C1D',
+        color: '#FFFFFF',
+        borderRadius: 8,
+        boxShadow: '0 4px 12px rgba(0,0,0,0.25), 0 0 0 1px rgba(255,255,255,0.06)',
+        maxWidth: '420px',
+        lineHeight: '20px',
         opacity: visible ? 1 : 0,
         transform: visible ? 'translateY(0)' : 'translateY(8px)',
-        transitionDuration: '200ms',
+        transition: 'opacity 180ms ease, transform 180ms ease',
       }}
     >
-      {c.icon}
+      <ToastIcon type={item.type} />
       <span className="flex-1">{item.message}</span>
       <button
+        type="button"
         onClick={onDismiss}
-        className="flex-shrink-0 ml-1 opacity-50 hover:opacity-100 transition-opacity"
+        aria-label="閉じる"
+        className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded"
+        style={{ color: 'rgba(255,255,255,0.7)' }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.12)'; e.currentTarget.style.color = '#FFFFFF'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(255,255,255,0.7)'; }}
       >
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24" aria-hidden="true">
           <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
         </svg>
       </button>
@@ -117,7 +124,7 @@ export function ToastContainer() {
 
   return ReactDOM.createPortal(
     <div
-      className="fixed bottom-6 left-1/2 -translate-x-1/2 flex flex-col gap-2 z-[9999] pointer-events-none"
+      className="fixed bottom-24 left-1/2 -translate-x-1/2 flex flex-col gap-2 z-[9999] pointer-events-none"
       style={{ minWidth: '280px' }}
     >
       {toasts.map((t) => (

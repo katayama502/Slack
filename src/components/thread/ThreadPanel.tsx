@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, KeyboardEvent } from 'react';
 import ReactDOM from 'react-dom';
+import type { Timestamp } from 'firebase/firestore';
 import { useAppStore } from '../../store/useAppStore';
 import { useThreads } from '../../hooks/useThreads';
 import { useThreadTypingUsers, useSendThreadTyping } from '../../hooks/useTyping';
@@ -11,27 +12,39 @@ import {
   updateThreadReply,
   deleteThreadReply,
 } from '../../services';
-import { formatMessageTime, formatFullDateTime, formatRelativeTime } from '../../utils/formatDate';
+import { formatMessageTime, formatFullDateTime, formatRelativeTime, isCompactMessage } from '../../utils/formatDate';
 import { renderMarkdown } from '../../utils/markdown';
 import { toast } from '../ui/Toast';
 import EmojiPicker from '../ui/EmojiPicker';
-import type { Thread } from '../../types';
+import Avatar from '../ui/Avatar';
+import {
+  MoreVerticalIcon, CloseIcon, EmojiAddIcon, PencilIcon, TrashIcon, LockIcon, HashIcon,
+  BoldIcon, ItalicIcon, StrikeIcon, LinkIcon, OrderedListIcon, BulletListIcon, QuoteIcon,
+  CodeIcon, CodeBlockIcon, PlusIcon, FormatAaIcon, EmojiIcon, AtIcon, SendFilledIcon,
+} from '../ui/icons';
+import type { User } from '../../types';
+
+// ─── Emoji picker (portal) ───────────────────────────────────────────────────
 
 function EmojiPickerPortal({
   anchorRect,
   onSelect,
   onClose,
+  placeAbove,
 }: {
   anchorRect: DOMRect;
   onSelect: (emoji: string) => void;
   onClose: () => void;
+  placeAbove?: boolean;
 }) {
   const pickerW = 320;
+  const pickerH = 380;
   let left = anchorRect.left;
-  if (left + pickerW > window.innerWidth - 8) {
-    left = window.innerWidth - pickerW - 8;
-  }
-  const top = anchorRect.bottom + 4;
+  if (left + pickerW > window.innerWidth - 8) left = window.innerWidth - pickerW - 8;
+  if (left < 8) left = 8;
+  let top = placeAbove ? anchorRect.top - pickerH - 4 : anchorRect.bottom + 4;
+  if (top + pickerH > window.innerHeight - 8) top = Math.max(8, anchorRect.top - pickerH - 4);
+  if (top < 8) top = 8;
 
   return ReactDOM.createPortal(
     <>
@@ -43,6 +56,274 @@ function EmojiPickerPortal({
     document.body
   );
 }
+
+// ─── Small UI atoms ──────────────────────────────────────────────────────────
+
+const POPOVER_STYLE: React.CSSProperties = {
+  background: '#FFFFFF',
+  border: '1px solid var(--sk-border)',
+  borderRadius: 8,
+  boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+};
+
+function IconBtn({
+  title, onClick, onMouseDown, children, size = 32, active, round,
+}: {
+  title: string;
+  onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  onMouseDown?: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  children: React.ReactNode;
+  size?: number;
+  active?: boolean;
+  round?: boolean;
+}) {
+  const restBg = active || round ? 'var(--sk-subtle)' : 'transparent';
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      aria-pressed={active}
+      onClick={onClick}
+      onMouseDown={onMouseDown}
+      className="flex items-center justify-center flex-shrink-0"
+      style={{
+        width: size, height: size, borderRadius: round ? '50%' : size >= 32 ? 6 : 4,
+        color: active ? 'var(--sk-text)' : 'var(--sk-text-2)', background: restBg,
+        transition: 'background 120ms, color 120ms',
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = round ? 'rgba(29,28,29,0.12)' : 'var(--sk-subtle)'; e.currentTarget.style.color = 'var(--sk-text)'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = restBg; e.currentTarget.style.color = active ? 'var(--sk-text)' : 'var(--sk-text-2)'; }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function MenuItem({ children, onClick, danger }: { children: React.ReactNode; onClick: () => void; danger?: boolean }) {
+  const base = danger ? 'var(--sk-red)' : 'var(--sk-text)';
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full flex items-center px-4 text-left text-[15px] whitespace-nowrap"
+      style={{ height: 32, color: base }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = danger ? 'var(--sk-red)' : 'var(--sk-link)'; e.currentTarget.style.color = '#FFFFFF'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = base; }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Divider() {
+  return <div className="w-px h-5 mx-1 flex-shrink-0" style={{ background: 'var(--sk-border)' }} />;
+}
+
+const QUICK_REACTIONS = ['✅', '👀', '🙌'];
+
+// ─── Message row (parent & replies, contract §7) ─────────────────────────────
+
+interface RowProps {
+  id: string;
+  name: string;
+  photoURL: string | null;
+  text: string;
+  createdAt: Timestamp;
+  editedAt?: Timestamp;
+  reactions?: Record<string, string[]>;
+  isCompact: boolean;
+  isOwner: boolean;
+  isParent?: boolean;
+  isEditing?: boolean;
+  editText?: string;
+  setEditText?: (v: string) => void;
+  onEditSave?: () => void;
+  onEditCancel?: () => void;
+  onEditStart?: () => void;
+  onDelete?: () => void;
+  onReact: (emoji: string) => void;
+  onOpenPicker: (rect: DOMRect) => void;
+  menuOpen: boolean;
+  onToggleMenu: () => void;
+  onCopyLink?: () => void;
+  users: User[];
+  myUid?: string;
+}
+
+function ThreadRow(p: RowProps) {
+  const reactions = Object.entries(p.reactions ?? {}).filter(([, uids]) => uids.length > 0);
+  const timeLabel = p.isParent ? formatRelativeTime(p.createdAt) : formatMessageTime(p.createdAt);
+
+  return (
+    <div
+      className="group relative flex gap-2"
+      style={{ padding: p.isCompact ? '2px 20px' : '8px 20px' }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--sk-hover)'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+    >
+      {/* Gutter */}
+      <div className="flex-shrink-0" style={{ width: 36 }}>
+        {p.isCompact ? (
+          <span
+            className="hidden group-hover:block text-right text-[12px] pt-[3px] cursor-default"
+            style={{ color: 'var(--sk-text-2)' }}
+            title={formatFullDateTime(p.createdAt)}
+          >
+            {formatMessageTime(p.createdAt)}
+          </span>
+        ) : (
+          <Avatar name={p.name} photoURL={p.photoURL} size={36} radius={8} />
+        )}
+      </div>
+
+      <div className="flex-1 min-w-0">
+        {!p.isCompact && (
+          <div className="flex items-baseline gap-2">
+            <span className="text-[15px] truncate" style={{ fontWeight: 900, color: 'var(--sk-text)' }}>{p.name}</span>
+            <span
+              className="text-[12px] hover:underline cursor-default flex-shrink-0"
+              style={{ color: 'var(--sk-text-2)' }}
+              title={formatFullDateTime(p.createdAt)}
+            >
+              {timeLabel}
+            </span>
+          </div>
+        )}
+
+        {p.isEditing ? (
+          <div className="mt-1">
+            <textarea
+              value={p.editText}
+              onChange={(e) => p.setEditText?.(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); p.onEditSave?.(); }
+                if (e.key === 'Escape') p.onEditCancel?.();
+              }}
+              className="w-full text-[15px] resize-none focus:outline-none px-3 py-2"
+              style={{
+                color: 'var(--sk-text)', background: '#FFFFFF', minHeight: 64, lineHeight: '22px',
+                border: '1px solid rgba(29,28,29,0.5)', boxShadow: '0 0 0 1px rgba(29,28,29,0.5)', borderRadius: 8,
+              }}
+              autoFocus
+            />
+            <div className="flex justify-end gap-2 mt-1.5">
+              <button
+                type="button"
+                onClick={p.onEditCancel}
+                className="px-3 h-7 text-[13px] font-bold"
+                style={{ border: '1px solid var(--sk-border-strong)', borderRadius: 4, color: 'var(--sk-text)', background: '#FFFFFF' }}
+              >キャンセル</button>
+              <button
+                type="button"
+                onClick={p.onEditSave}
+                className="px-3 h-7 text-[13px] font-bold"
+                style={{ borderRadius: 4, background: 'var(--sk-green)', color: '#FFFFFF' }}
+              >保存</button>
+            </div>
+          </div>
+        ) : (
+          <div className="text-[15px]" style={{ color: 'var(--sk-text)', lineHeight: '22px' }}>
+            {renderMarkdown(p.text, { currentUid: p.myUid })}
+            {p.editedAt && <span className="text-[12px] ml-1" style={{ color: 'var(--sk-text-3)' }}>（編集済み）</span>}
+          </div>
+        )}
+
+        {/* Reactions */}
+        {reactions.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1 mt-1">
+            {reactions.map(([emoji, uids]) => {
+              const mine = !!p.myUid && uids.includes(p.myUid);
+              return (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => p.onReact(emoji)}
+                  title={uids.map((uid) => p.users.find((u) => u.uid === uid)?.displayName ?? '不明なユーザー').join('、') + ' がリアクションしました'}
+                  className="flex items-center gap-1"
+                  style={{
+                    height: 24, borderRadius: 12, padding: '0 6px',
+                    background: mine ? 'var(--sk-mention-bg)' : 'var(--sk-subtle)',
+                    boxShadow: mine ? 'inset 0 0 0 1px var(--sk-blue)' : 'none',
+                  }}
+                >
+                  <span style={{ fontSize: 16, lineHeight: 1 }}>{emoji}</span>
+                  <span className="text-[12px]" style={{ color: mine ? 'var(--sk-link)' : 'var(--sk-text-2)', fontWeight: mine ? 700 : 400 }}>
+                    {uids.length}
+                  </span>
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              title="リアクションする"
+              onClick={(e) => p.onOpenPicker(e.currentTarget.getBoundingClientRect())}
+              className="flex items-center justify-center"
+              style={{ height: 24, width: 32, borderRadius: 12, background: 'var(--sk-subtle)', color: 'var(--sk-text-2)' }}
+            >
+              <EmojiAddIcon className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Hover toolbar */}
+      {!p.isEditing && (
+        <div
+          className={`absolute flex items-center ${p.menuOpen ? 'flex' : 'hidden group-hover:flex'}`}
+          style={{
+            top: -16, right: 20, background: '#FFFFFF', border: '1px solid var(--sk-border)',
+            borderRadius: 8, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', padding: 2, zIndex: 5,
+          }}
+        >
+          {QUICK_REACTIONS.map((emoji) => (
+            <IconBtn key={emoji} title={`${emoji} でリアクションする`} onClick={() => p.onReact(emoji)}>
+              <span style={{ fontSize: 16, lineHeight: 1 }}>{emoji}</span>
+            </IconBtn>
+          ))}
+          <IconBtn title="リアクションする" onClick={(e) => p.onOpenPicker(e.currentTarget.getBoundingClientRect())}>
+            <EmojiAddIcon className="w-[18px] h-[18px]" />
+          </IconBtn>
+          {p.isOwner && p.onEditStart && (
+            <IconBtn title="メッセージを編集する" onClick={p.onEditStart}>
+              <PencilIcon className="w-[18px] h-[18px]" />
+            </IconBtn>
+          )}
+          {p.isOwner && p.onDelete && (
+            <IconBtn title="メッセージを削除する" onClick={p.onDelete}>
+              <TrashIcon className="w-[18px] h-[18px]" />
+            </IconBtn>
+          )}
+          <div className="relative">
+            <IconBtn title="その他" onClick={p.onToggleMenu} active={p.menuOpen}>
+              <MoreVerticalIcon className="w-[18px] h-[18px]" />
+            </IconBtn>
+            {p.menuOpen && (
+              <div className="absolute right-0 top-full mt-1 z-30 py-2" style={{ ...POPOVER_STYLE, minWidth: 220 }}>
+                <MenuItem onClick={() => {
+                  navigator.clipboard?.writeText(p.text).then(
+                    () => toast.success('テキストをコピーしました'),
+                    () => toast.error('コピーに失敗しました'),
+                  );
+                  p.onToggleMenu();
+                }}>テキストをコピー</MenuItem>
+                {p.onCopyLink && <MenuItem onClick={() => { p.onCopyLink?.(); p.onToggleMenu(); }}>リンクをコピー</MenuItem>}
+                {p.isOwner && p.onEditStart && <MenuItem onClick={() => { p.onToggleMenu(); p.onEditStart?.(); }}>メッセージを編集する</MenuItem>}
+                {p.isOwner && p.onDelete && <MenuItem danger onClick={() => { p.onToggleMenu(); p.onDelete?.(); }}>メッセージを削除する</MenuItem>}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+type SuggestItem =
+  | { kind: 'special'; key: 'channel' | 'here' }
+  | { kind: 'user'; user: User };
+
+// ─── Panel ───────────────────────────────────────────────────────────────────
 
 export default function ThreadPanel() {
   const { user } = useAppStore((s) => s.auth);
@@ -65,62 +346,198 @@ export default function ThreadPanel() {
   const [reactionAnchor, setReactionAnchor] = useState<{ rect: DOMRect; targetId: string; isParent: boolean } | null>(null);
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  const [rowMenuId, setRowMenuId] = useState<string | null>(null);
+  const [showToolbar, setShowToolbar] = useState(true);
+  const [plusMenuOpen, setPlusMenuOpen] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [suggest, setSuggest] = useState<{ query: string; start: number } | null>(null);
+  const [suggestIndex, setSuggestIndex] = useState(0);
+  const mentionMapRef = useRef<Map<string, string>>(new Map()); // "@name" → uid
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputEmojiRef = useRef<HTMLButtonElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const parentMessage = messages.find((m) => m.id === threadPanelMessageId);
   const channel = channels.find((c) => c.id === activeChannelId);
-  const isDM = channel?.name.startsWith('__dm__');
-  const channelLabel = isDM ? 'DM' : channel ? `#${channel.name}` : '';
+  const isDM = channel?.name.startsWith('__dm__') ?? false;
+  const dmOther = isDM ? users.find((u) => u.uid !== user?.uid && channel?.members?.includes(u.uid)) : undefined;
+  const headerLabel = isDM ? (dmOther?.displayName ?? '自分') : channel?.name ?? '';
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [threads.length]);
 
+  // Reset composer state when switching threads
+  useEffect(() => {
+    setEditingThreadId(null);
+    setRowMenuId(null);
+    setSuggest(null);
+    mentionMapRef.current.clear();
+  }, [threadPanelMessageId]);
+
+  // Autosize textarea
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+  }, [replyText]);
+
+  /** "@表示名" を markdown のメンション記法へ変換し、メンション先 uid を返す */
+  const resolveMentions = (text: string): { text: string; uids: string[] } => {
+    let out = text;
+    const uids: string[] = [];
+    // 長い名前から置換（部分一致の誤置換を防ぐ）
+    const entries = [...mentionMapRef.current.entries()].sort((a, b) => b[0].length - a[0].length);
+    for (const [token, uid] of entries) {
+      if (!out.includes(token)) continue;
+      const name = token.slice(1);
+      out = out.split(token).join(`@[${name}](${uid})`);
+      uids.push(uid);
+    }
+    return { text: out, uids };
+  };
+
   const handleSend = async () => {
     if (!activeChannelId || !threadPanelMessageId || !user || !replyText.trim() || sending) return;
-    const trimmed = replyText.trim();
+    const original = replyText;
+    const { text: trimmed, uids: mentionUids } = resolveMentions(replyText.trim());
     setSending(true);
     setReplyText('');
+    setSuggest(null);
     stopThreadTyping();
     try {
-      // スレッドの親メッセージ投稿者と既存の参加者に通知
+      // スレッドの親メッセージ投稿者・既存の参加者・メンション先に通知
       const notifyUids = [
         parentMessage?.uid ?? '',
         ...(parentMessage?.threadParticipants ?? []),
+        ...mentionUids,
       ].filter(Boolean) as string[];
       await sendThreadReply(activeChannelId, threadPanelMessageId, trimmed, user, notifyUids);
       if (alsoSendToChannel) {
-        await sendMessage(activeChannelId, trimmed, user, []).catch(() => {});
+        await sendMessage(activeChannelId, trimmed, user, mentionUids, isDM ? dmOther?.uid : undefined).catch(() => {
+          toast.error('チャンネルへの投稿に失敗しました');
+        });
       }
+      mentionMapRef.current.clear();
     } catch (err) {
       console.error('Thread reply error:', err);
-      setReplyText(trimmed);
+      setReplyText(original);
       toast.error('返信の送信に失敗しました');
     } finally {
       setSending(false);
     }
   };
 
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // ── Textarea formatting (markdown markers) ────────────────────────────────
 
-  const wrapSelection = (before: string, after: string = before) => {
+  const applyEdit = (newText: string, selStart: number, selEnd: number) => {
+    setReplyText(newText);
+    const el = textareaRef.current;
+    setTimeout(() => {
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(selStart, selEnd);
+    }, 0);
+  };
+
+  const wrapSelection = (before: string, after: string = before, placeholder = '') => {
     const el = textareaRef.current;
     if (!el) return;
     const start = el.selectionStart;
     const end = el.selectionEnd;
-    const selected = replyText.slice(start, end);
-    const newText =
-      replyText.slice(0, start) + before + selected + after + replyText.slice(end);
-    setReplyText(newText);
-    setTimeout(() => {
-      el.focus();
-      el.setSelectionRange(start + before.length, start + before.length + selected.length);
-    }, 0);
+    const selected = replyText.slice(start, end) || placeholder;
+    const newText = replyText.slice(0, start) + before + selected + after + replyText.slice(end);
+    applyEdit(newText, start + before.length, start + before.length + selected.length);
+  };
+
+  const prefixLines = (makePrefix: (i: number) => string) => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const lineStart = replyText.lastIndexOf('\n', start - 1) + 1;
+    const nextNl = replyText.indexOf('\n', end);
+    const lineEnd = nextNl === -1 ? replyText.length : nextNl;
+    const block = replyText.slice(lineStart, lineEnd);
+    const replaced = block.split('\n').map((l, i) => makePrefix(i) + l).join('\n');
+    const newText = replyText.slice(0, lineStart) + replaced + replyText.slice(lineEnd);
+    applyEdit(newText, lineStart + replaced.length, lineStart + replaced.length);
+  };
+
+  const insertLink = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const label = replyText.slice(start, end) || 'テキスト';
+    const url = 'https://';
+    const insert = `[${label}](${url})`;
+    const newText = replyText.slice(0, start) + insert + replyText.slice(end);
+    const urlStart = start + label.length + 3;
+    applyEdit(newText, urlStart, urlStart + url.length);
+  };
+
+  const insertAtCaret = (s: string) => {
+    const el = textareaRef.current;
+    const start = el ? el.selectionStart : replyText.length;
+    const end = el ? el.selectionEnd : replyText.length;
+    const newText = replyText.slice(0, start) + s + replyText.slice(end);
+    applyEdit(newText, start + s.length, start + s.length);
+    return start + s.length;
+  };
+
+  // ── Mention suggest (textarea) ────────────────────────────────────────────
+
+  const q = suggest?.query.toLowerCase() ?? '';
+  const suggestItems: SuggestItem[] = suggest
+    ? [
+        ...(!isDM ? (['channel', 'here'] as const).filter((k) => k.startsWith(q)).map((k): SuggestItem => ({ kind: 'special', key: k })) : []),
+        ...users
+          .filter((u) => u.uid !== user?.uid && u.displayName.toLowerCase().includes(q))
+          .slice(0, 20)
+          .map((u): SuggestItem => ({ kind: 'user', user: u })),
+      ]
+    : [];
+
+  const detectSuggest = (value: string, caret: number) => {
+    const before = value.slice(0, caret);
+    const m = before.match(/(?:^|\s)@([^\s@]*)$/);
+    if (m) {
+      setSuggest({ query: m[1], start: caret - m[1].length - 1 });
+      setSuggestIndex(0);
+    } else {
+      setSuggest(null);
+    }
+  };
+
+  const pickSuggestion = (item: SuggestItem) => {
+    if (!suggest) return;
+    const el = textareaRef.current;
+    const caret = el ? el.selectionStart : replyText.length;
+    let token: string;
+    if (item.kind === 'special') {
+      token = `@${item.key}`;
+    } else {
+      token = `@${item.user.displayName}`;
+      mentionMapRef.current.set(token, item.user.uid);
+    }
+    const insert = token + ' ';
+    const newText = replyText.slice(0, suggest.start) + insert + replyText.slice(caret);
+    const pos = suggest.start + insert.length;
+    setSuggest(null);
+    applyEdit(newText, pos, pos);
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (suggest && suggestItems.length > 0) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setSuggestIndex((i) => Math.min(i + 1, suggestItems.length - 1)); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setSuggestIndex((i) => Math.max(i - 1, 0)); return; }
+      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); const it = suggestItems[suggestIndex]; if (it) pickSuggestion(it); return; }
+      if (e.key === 'Escape') { e.preventDefault(); setSuggest(null); return; }
+    }
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       handleSend();
       return;
@@ -129,23 +546,22 @@ export default function ThreadPanel() {
       switch (e.key.toLowerCase()) {
         case 'b': e.preventDefault(); wrapSelection('*'); return;
         case 'i': e.preventDefault(); wrapSelection('_'); return;
+        case 'k': e.preventDefault(); insertLink(); return;
       }
     }
   };
+
+  // ── Reactions / edit / delete ─────────────────────────────────────────────
 
   const handleReaction = async (messageId: string, emoji: string, isParent = false) => {
     if (!user || !activeChannelId || !threadPanelMessageId) return;
     try {
       if (isParent) {
-        // 親メッセージへのリアクション
         const parentMsg = messages.find((m) => m.id === messageId);
-        const currentReactions = parentMsg?.reactions ?? {};
-        await toggleReaction(activeChannelId, messageId, emoji, user.uid, currentReactions);
+        await toggleReaction(activeChannelId, messageId, emoji, user.uid, parentMsg?.reactions ?? {});
       } else {
-        // スレッド返信へのリアクション（正しいパスに保存）
         const thread = threads.find((t) => t.id === messageId);
-        const currentReactions = thread?.reactions ?? {};
-        await toggleThreadReaction(activeChannelId, threadPanelMessageId, messageId, emoji, user.uid, currentReactions);
+        await toggleThreadReaction(activeChannelId, threadPanelMessageId, messageId, emoji, user.uid, thread?.reactions ?? {});
       }
     } catch (err) {
       console.error('Reaction error:', err);
@@ -153,15 +569,10 @@ export default function ThreadPanel() {
     setReactionAnchor(null);
   };
 
-  const handleEditStart = (thread: Thread) => {
-    setEditingThreadId(thread.id);
-    setEditText(thread.text);
-  };
-
-  const handleEditSave = async (thread: Thread) => {
+  const handleEditSave = async (threadId: string) => {
     if (!activeChannelId || !threadPanelMessageId || !editText.trim()) return;
     try {
-      await updateThreadReply(activeChannelId, threadPanelMessageId, thread.id, editText.trim());
+      await updateThreadReply(activeChannelId, threadPanelMessageId, threadId, editText.trim());
       setEditingThreadId(null);
       toast.success('編集しました');
     } catch {
@@ -171,7 +582,7 @@ export default function ThreadPanel() {
 
   const handleDelete = async (threadId: string) => {
     if (!activeChannelId || !threadPanelMessageId) return;
-    if (!window.confirm('この返信を削除しますか？')) return;
+    if (!window.confirm('この返信を削除しますか？この操作は取り消せません。')) return;
     try {
       await deleteThreadReply(activeChannelId, threadPanelMessageId, threadId);
       toast.success('返信を削除しました');
@@ -180,494 +591,357 @@ export default function ThreadPanel() {
     }
   };
 
+  const copyThreadLink = () => {
+    if (!activeChannelId || !threadPanelMessageId) return;
+    const url = `${window.location.origin}${window.location.pathname}?channel=${encodeURIComponent(activeChannelId)}&msg=${encodeURIComponent(threadPanelMessageId)}`;
+    navigator.clipboard?.writeText(url).then(
+      () => toast.success('リンクをコピーしました'),
+      () => toast.error('コピーに失敗しました'),
+    );
+  };
+
   const hasText = replyText.trim().length > 0;
-  const [threadInputFocused, setThreadInputFocused] = useState(false);
+  const canSend = hasText && !sending;
+  const toolbarDim = !focused && !hasText;
+  const iconCls = 'w-[18px] h-[18px]';
 
   return (
-    <div className="flex flex-col h-full" style={{ background: '#FFFFFF', borderLeft: '1px solid #E8E8E8' }}>
+    <div className="flex flex-col h-full min-w-0" style={{ background: '#FFFFFF' }}>
       {/* Header */}
       <div
-        className="flex items-center justify-between px-4 flex-shrink-0"
-        style={{ minHeight: '49px', borderBottom: '1px solid #E8E8E8' }}
+        className="flex items-center justify-between pl-5 pr-3 flex-shrink-0"
+        style={{ height: 49, borderBottom: '1px solid var(--sk-border)' }}
       >
-        <div className="flex items-center gap-2 min-w-0">
-          <h3 className="font-bold text-[15px] flex-shrink-0" style={{ color: '#1D1C1D' }}>スレッド</h3>
-          {channelLabel && (
-            <span
-              className="text-[12px] px-1.5 py-0.5 rounded flex-shrink-0"
-              style={{ background: '#F0F0F0', color: '#616061' }}
-            >
-              {channelLabel}
+        <div className="flex items-baseline gap-2 min-w-0">
+          <h3 className="text-[18px] flex-shrink-0" style={{ fontWeight: 900, color: 'var(--sk-text)' }}>スレッド</h3>
+          {headerLabel && (
+            <span className="flex items-center gap-0.5 text-[13px] truncate min-w-0" style={{ color: 'var(--sk-text-2)' }}>
+              {!isDM && (channel?.isPrivate
+                ? <LockIcon className="flex-shrink-0 self-center" style={{ width: 12, height: 12 }} />
+                : <HashIcon className="flex-shrink-0 self-center" style={{ width: 12, height: 12 }} />)}
+              <span className="truncate">{headerLabel}</span>
             </span>
           )}
         </div>
-        <button
-          onClick={closeThreadPanel}
-          title="閉じる (Esc)"
-          className="w-8 h-8 flex items-center justify-center rounded press-subtle flex-shrink-0"
-          style={{ color: '#616061' }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; e.currentTarget.style.color = '#1D1C1D'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#616061'; }}
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
+        <div className="flex items-center gap-0.5 flex-shrink-0">
+          <div className="relative">
+            <IconBtn title="その他のオプション" onClick={() => setHeaderMenuOpen((v) => !v)} active={headerMenuOpen}>
+              <MoreVerticalIcon className="w-[18px] h-[18px]" />
+            </IconBtn>
+            {headerMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-20" onClick={() => setHeaderMenuOpen(false)} />
+                <div className="absolute right-0 top-full mt-1 z-30 py-2" style={{ ...POPOVER_STYLE, minWidth: 240 }}>
+                  <MenuItem onClick={() => { setHeaderMenuOpen(false); copyThreadLink(); }}>スレッドのリンクをコピー</MenuItem>
+                  <MenuItem onClick={() => { setHeaderMenuOpen(false); toast.info('スレッドの通知オフはこのバージョンでは未対応です'); }}>通知をオフにする</MenuItem>
+                </div>
+              </>
+            )}
+          </div>
+          <IconBtn title="閉じる" onClick={closeThreadPanel}>
+            <CloseIcon className="w-[18px] h-[18px]" />
+          </IconBtn>
+        </div>
       </div>
 
       {/* Scroll area */}
-      <div className="flex-1 overflow-y-auto">
-        {/* Parent message */}
+      <div className="flex-1 overflow-y-auto pt-4">
+        {rowMenuId && <div className="fixed inset-0 z-[4]" onClick={() => setRowMenuId(null)} />}
+
         {parentMessage && (
-          <div
-            className="px-4 py-4 group relative"
-            style={{ borderBottom: '1px solid #E8E8E8' }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(29,28,29,0.04)'; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; setReactionAnchor(null); }}
-          >
-            <div className="flex gap-3">
-              {parentMessage.photoURL ? (
-                <img
-                  src={parentMessage.photoURL}
-                  alt={parentMessage.displayName}
-                  className="w-9 h-9 object-cover flex-shrink-0"
-                  style={{ borderRadius: '4px' }}
-                />
-              ) : (
-                <div
-                  className="w-9 h-9 flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
-                  style={{ borderRadius: '4px', background: '#1164A3' }}
-                >
-                  {parentMessage.displayName[0]?.toUpperCase() ?? '?'}
-                </div>
-              )}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-baseline gap-2 mb-0.5">
-                  <span className="font-bold text-[15px]" style={{ color: '#1D1C1D' }}>
-                    {parentMessage.displayName}
-                  </span>
-                  <span
-                    className="text-[12px]"
-                    style={{ color: '#616061' }}
-                    title={formatFullDateTime(parentMessage.createdAt)}
-                  >
-                    {formatRelativeTime(parentMessage.createdAt)}
-                  </span>
-                </div>
-                <div className="text-[15px]" style={{ color: '#1D1C1D', lineHeight: '1.46875' }}>
-                  {renderMarkdown(parentMessage.text)}
-                </div>
-                {/* Reactions on parent */}
-                {Object.keys(parentMessage.reactions ?? {}).length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-1.5">
-                    {Object.entries(parentMessage.reactions ?? {}).map(([emoji, uids]) =>
-                      uids.length > 0 ? (
-                        <button
-                          key={emoji}
-                          onClick={() => handleReaction(parentMessage.id, emoji, true)}
-                          title={uids.map((uid) => users.find((u) => u.uid === uid)?.displayName ?? uid).join(', ')}
-                          className="flex items-center gap-0.5 text-[12px] px-1.5 py-0.5 reaction-btn"
-                          style={{
-                            borderRadius: '24px',
-                            border: user && uids.includes(user.uid) ? '1.5px solid #1264A3' : '1px solid #DDDDDD',
-                            background: user && uids.includes(user.uid) ? 'rgba(18,100,163,0.1)' : '#F4F4F4',
-                            color: user && uids.includes(user.uid) ? '#1264A3' : '#616061',
-                            fontWeight: user && uids.includes(user.uid) ? 600 : 400,
-                          }}
-                        >
-                          <span>{emoji}</span>
-                          <span className="font-semibold ml-0.5">{uids.length}</span>
-                        </button>
-                      ) : null
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-            {/* Parent message hover action */}
-            <div
-              className="absolute right-3 top-2 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
-              style={{
-                background: '#FFFFFF',
-                border: '1px solid #E0E0E0',
-                borderRadius: '8px',
-                padding: '2px',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-              }}
-            >
-              <button
-                onClick={(e) => {
-                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                  setReactionAnchor((a) =>
-                    a?.targetId === parentMessage.id ? null : { rect, targetId: parentMessage.id, isParent: true }
-                  );
-                }}
-                className="w-7 h-7 flex items-center justify-center rounded-md text-[#616061] press-subtle"
-                onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; e.currentTarget.style.color = '#1D1C1D'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#616061'; }}
-                title="リアクションを追加"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.182 15.182a4.5 4.5 0 01-6.364 0M21 12a9 9 0 11-18 0 9 9 0 0118 0zM9.75 9.75c0 .414-.168.75-.375.75S9 10.164 9 9.75 9.168 9 9.375 9s.375.336.375.75zm5.625 0c0 .414-.168.75-.375.75s-.375-.336-.375-.75.168-.75.375-.75.375.336.375.75z" />
-                </svg>
-              </button>
-            </div>
-          </div>
+          <ThreadRow
+            id={parentMessage.id}
+            name={parentMessage.displayName}
+            photoURL={parentMessage.photoURL}
+            text={parentMessage.text}
+            createdAt={parentMessage.createdAt}
+            editedAt={parentMessage.editedAt}
+            reactions={parentMessage.reactions}
+            isCompact={false}
+            isOwner={false}
+            isParent
+            onReact={(emoji) => handleReaction(parentMessage.id, emoji, true)}
+            onOpenPicker={(rect) => setReactionAnchor({ rect, targetId: parentMessage.id, isParent: true })}
+            menuOpen={rowMenuId === parentMessage.id}
+            onToggleMenu={() => setRowMenuId((id) => (id === parentMessage.id ? null : parentMessage.id))}
+            onCopyLink={copyThreadLink}
+            users={users}
+            myUid={user?.uid}
+          />
         )}
 
         {/* Reply count divider */}
         {threads.length > 0 && (
-          <div className="flex items-center gap-3 px-4 py-3">
-            <hr className="flex-1" style={{ borderColor: '#E8E8E8' }} />
-            <span
-              className="text-[11px] font-bold px-2.5 py-0.5 flex-shrink-0"
-              style={{
-                color: '#616061',
-                border: '1px solid #E0E0E0',
-                borderRadius: '24px',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {threads.length}件の返信
+          <div className="flex items-center gap-2 px-5 py-2">
+            <span className="text-[13px] flex-shrink-0" style={{ color: 'var(--sk-text-2)' }}>
+              {threads.length} 件の返信
             </span>
-            <hr className="flex-1" style={{ borderColor: '#E8E8E8' }} />
+            <span className="flex-1 h-px" style={{ background: 'var(--sk-border)' }} />
           </div>
         )}
 
-        {/* Thread replies */}
+        {/* Replies */}
         <div className="pb-4">
-          {threads.map((thread) => {
+          {threads.map((thread, i) => {
+            const prev = threads[i - 1];
+            const compact = !!prev && !prev.editedAt && isCompactMessage(prev.createdAt, thread.createdAt, prev.uid, thread.uid);
             const isOwner = thread.uid === user?.uid;
-            const isEditing = editingThreadId === thread.id;
             return (
-              <div
+              <ThreadRow
                 key={thread.id}
-                className="relative flex gap-3 px-4 py-2 transition-colors group"
-                onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(29,28,29,0.04)'; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; setReactionAnchor(null); }}
-              >
-                {thread.photoURL ? (
-                  <img
-                    src={thread.photoURL}
-                    alt={thread.displayName}
-                    className="w-8 h-8 object-cover flex-shrink-0"
-                    style={{ borderRadius: '4px' }}
-                  />
-                ) : (
-                  <div
-                    className="w-8 h-8 flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                    style={{ borderRadius: '4px', background: '#1164A3' }}
-                  >
-                    {thread.displayName[0]?.toUpperCase() ?? '?'}
-                  </div>
-                )}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-baseline gap-2 mb-0.5">
-                    <span className="font-bold text-[15px]" style={{ color: '#1D1C1D' }}>
-                      {thread.displayName}
-                    </span>
-                    <span
-                      className="text-[12px]"
-                      style={{ color: '#616061' }}
-                      title={formatFullDateTime(thread.createdAt)}
-                    >
-                      {formatMessageTime(thread.createdAt)}
-                    </span>
-                    {thread.editedAt && (
-                      <span className="text-[11px] text-[#616061]">(編集済み)</span>
-                    )}
-                  </div>
-
-                  {isEditing ? (
-                    <div>
-                      <textarea
-                        value={editText}
-                        onChange={(e) => setEditText(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleEditSave(thread); }
-                          if (e.key === 'Escape') setEditingThreadId(null);
-                        }}
-                        className="w-full text-[15px] text-[#1D1C1D] resize-none focus:outline-none p-2 rounded"
-                        style={{ border: '1px solid #1D9BD1', boxShadow: '0 0 0 1px #1D9BD1', minHeight: '60px', lineHeight: '1.46875' }}
-                        autoFocus
-                      />
-                      <div className="flex gap-2 mt-1">
-                        <button
-                          onClick={() => handleEditSave(thread)}
-                          className="px-2 py-1 text-[12px] text-white rounded"
-                          style={{ background: '#007A5A' }}
-                        >保存</button>
-                        <button
-                          onClick={() => setEditingThreadId(null)}
-                          className="px-2 py-1 text-[12px] rounded border border-[#DDDDDD]"
-                          onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                        >キャンセル</button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-[15px]" style={{ color: '#1D1C1D', lineHeight: '1.46875' }}>
-                      {renderMarkdown(thread.text)}
-                    </div>
-                  )}
-
-                  {/* Reactions on thread */}
-                  {Object.keys(thread.reactions ?? {}).length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {Object.entries(thread.reactions ?? {}).map(([emoji, uids]) =>
-                        uids.length > 0 ? (
-                          <button
-                            key={emoji}
-                            onClick={() => handleReaction(thread.id, emoji)}
-                            title={uids.map((uid) => users.find((u) => u.uid === uid)?.displayName ?? uid).join(', ')}
-                            className="flex items-center gap-0.5 text-[12px] px-1.5 py-0.5 reaction-btn"
-                            style={{
-                              borderRadius: '24px',
-                              border: user && uids.includes(user.uid) ? '1.5px solid #1264A3' : '1px solid #DDDDDD',
-                              background: user && uids.includes(user.uid) ? 'rgba(18,100,163,0.1)' : '#F4F4F4',
-                              color: user && uids.includes(user.uid) ? '#1264A3' : '#616061',
-                              fontWeight: user && uids.includes(user.uid) ? 600 : 400,
-                            }}
-                          >
-                            <span>{emoji}</span>
-                            <span className="font-semibold ml-0.5">{uids.length}</span>
-                          </button>
-                        ) : null
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Action toolbar */}
-                {!isEditing && (
-                  <div
-                    className="absolute right-3 top-1 flex items-center gap-px opacity-0 group-hover:opacity-100 transition-opacity duration-150"
-                    style={{
-                      background: '#FFFFFF',
-                      border: '1px solid #E0E0E0',
-                      borderRadius: '8px',
-                      padding: '2px',
-                      boxShadow: '0 2px 8px rgba(0,0,0,0.1), 0 0 0 1px rgba(0,0,0,0.03)',
-                    }}
-                  >
-                    {/* Reaction */}
-                    <button
-                      onClick={(e) => {
-                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                        setReactionAnchor((a) =>
-                          a?.targetId === thread.id ? null : { rect, targetId: thread.id, isParent: false }
-                        );
-                      }}
-                      className="w-7 h-7 flex items-center justify-center rounded-md text-[#616061] press-subtle"
-                      onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; e.currentTarget.style.color = '#1D1C1D'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#616061'; }}
-                      title="リアクション"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.182 15.182a4.5 4.5 0 01-6.364 0M21 12a9 9 0 11-18 0 9 9 0 0118 0zM9.75 9.75c0 .414-.168.75-.375.75S9 10.164 9 9.75 9.168 9 9.375 9s.375.336.375.75zm5.625 0c0 .414-.168.75-.375.75s-.375-.336-.375-.75.168-.75.375-.75.375.336.375.75z" />
-                      </svg>
-                    </button>
-
-                    {/* Edit */}
-                    {isOwner && (
-                      <button
-                        onClick={() => handleEditStart(thread)}
-                        className="w-7 h-7 flex items-center justify-center rounded-md text-[#616061] press-subtle"
-                        onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; e.currentTarget.style.color = '#1D1C1D'; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#616061'; }}
-                        title="編集"
-                      >
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
-                        </svg>
-                      </button>
-                    )}
-
-                    {/* Delete */}
-                    {isOwner && (
-                      <button
-                        onClick={() => handleDelete(thread.id)}
-                        className="w-7 h-7 flex items-center justify-center rounded-md text-[#616061] press-subtle"
-                        onMouseEnter={(e) => { e.currentTarget.style.background = '#FFF0F0'; e.currentTarget.style.color = '#E01E5A'; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#616061'; }}
-                        title="削除"
-                      >
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                        </svg>
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
+                id={thread.id}
+                name={thread.displayName}
+                photoURL={thread.photoURL}
+                text={thread.text}
+                createdAt={thread.createdAt}
+                editedAt={thread.editedAt}
+                reactions={thread.reactions}
+                isCompact={compact}
+                isOwner={isOwner}
+                isEditing={editingThreadId === thread.id}
+                editText={editText}
+                setEditText={setEditText}
+                onEditStart={() => { setEditingThreadId(thread.id); setEditText(thread.text); }}
+                onEditSave={() => handleEditSave(thread.id)}
+                onEditCancel={() => setEditingThreadId(null)}
+                onDelete={() => handleDelete(thread.id)}
+                onReact={(emoji) => handleReaction(thread.id, emoji)}
+                onOpenPicker={(rect) => setReactionAnchor({ rect, targetId: thread.id, isParent: false })}
+                menuOpen={rowMenuId === thread.id}
+                onToggleMenu={() => setRowMenuId((id) => (id === thread.id ? null : thread.id))}
+                users={users}
+                myUid={user?.uid}
+              />
             );
           })}
+        </div>
+
+        {/* Composer (Slack はスレッドの末尾に入力欄を置く) */}
+        <div className="px-5 pb-2">
+          <div
+            className="relative"
+            style={{
+              background: '#FFFFFF',
+              border: `1px solid ${focused ? 'rgba(29,28,29,0.5)' : 'var(--sk-border-strong)'}`,
+              boxShadow: focused ? '0 0 0 1px rgba(29,28,29,0.5)' : 'none',
+              borderRadius: 8,
+              transition: 'border-color 150ms, box-shadow 150ms',
+            }}
+          >
+            {/* Mention suggest */}
+            {suggest && suggestItems.length > 0 && (
+              <div className="absolute bottom-full left-0 right-0 mb-1 max-h-60 overflow-y-auto z-20 py-2" style={POPOVER_STYLE}>
+                <div className="px-4 pb-1 text-[13px] font-bold" style={{ color: 'var(--sk-text-2)' }}>メンバー</div>
+                {suggestItems.map((item, i) => {
+                  const sel = i === suggestIndex;
+                  const key = item.kind === 'special' ? `__${item.key}` : item.user.uid;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onMouseDown={(e) => { e.preventDefault(); pickSuggestion(item); }}
+                      onMouseEnter={() => setSuggestIndex(i)}
+                      className="w-full flex items-center gap-2 px-4 text-left"
+                      style={{ height: 36, background: sel ? 'var(--sk-link)' : 'transparent', color: sel ? '#FFFFFF' : 'var(--sk-text)' }}
+                    >
+                      {item.kind === 'special' ? (
+                        <>
+                          <span className="w-6 h-6 flex items-center justify-center flex-shrink-0" style={{ borderRadius: 6, background: sel ? 'rgba(255,255,255,0.2)' : 'var(--sk-subtle)' }}>
+                            <AtIcon className="w-4 h-4" />
+                          </span>
+                          <span className="font-bold text-[15px]">@{item.key}</span>
+                        </>
+                      ) : (
+                        <>
+                          <Avatar name={item.user.displayName} photoURL={item.user.photoURL} size={24} radius={6} />
+                          <span className="font-bold text-[15px] truncate">{item.user.displayName}</span>
+                          <span
+                            className="w-2 h-2 rounded-full flex-shrink-0"
+                            style={item.user.online ? { background: 'var(--sk-online)' } : { border: `1px solid ${sel ? '#FFFFFF' : 'var(--sk-text-3)'}` }}
+                          />
+                        </>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Formatting toolbar */}
+            {showToolbar && (
+              <div
+                className="flex items-center gap-0.5 px-1.5 overflow-hidden"
+                style={{
+                  height: 36, background: 'var(--sk-hover)', borderTopLeftRadius: 8, borderTopRightRadius: 8,
+                  opacity: toolbarDim ? 0.5 : 1, transition: 'opacity 150ms',
+                }}
+              >
+                <IconBtn size={28} title="太字 (⌘B)" onMouseDown={(e) => { e.preventDefault(); wrapSelection('*'); }}><BoldIcon className={iconCls} /></IconBtn>
+                <IconBtn size={28} title="斜体 (⌘I)" onMouseDown={(e) => { e.preventDefault(); wrapSelection('_'); }}><ItalicIcon className={iconCls} /></IconBtn>
+                <IconBtn size={28} title="取り消し線" onMouseDown={(e) => { e.preventDefault(); wrapSelection('~'); }}><StrikeIcon className={iconCls} /></IconBtn>
+                <Divider />
+                <IconBtn size={28} title="リンク (⌘K)" onMouseDown={(e) => { e.preventDefault(); insertLink(); }}><LinkIcon className={iconCls} /></IconBtn>
+                <Divider />
+                <IconBtn size={28} title="番号付きリスト" onMouseDown={(e) => { e.preventDefault(); prefixLines((i) => `${i + 1}. `); }}><OrderedListIcon className={iconCls} /></IconBtn>
+                <IconBtn size={28} title="箇条書き" onMouseDown={(e) => { e.preventDefault(); prefixLines(() => '• '); }}><BulletListIcon className={iconCls} /></IconBtn>
+                <Divider />
+                <IconBtn size={28} title="引用" onMouseDown={(e) => { e.preventDefault(); prefixLines(() => '> '); }}><QuoteIcon className={iconCls} /></IconBtn>
+                <Divider />
+                <IconBtn size={28} title="コード" onMouseDown={(e) => { e.preventDefault(); wrapSelection('`', '`', 'コード'); }}><CodeIcon className={iconCls} /></IconBtn>
+                <IconBtn size={28} title="コードブロック" onMouseDown={(e) => { e.preventDefault(); wrapSelection('```\n', '\n```', 'コードをここに入力'); }}><CodeBlockIcon className={iconCls} /></IconBtn>
+              </div>
+            )}
+
+            <textarea
+              ref={textareaRef}
+              value={replyText}
+              onChange={(e) => {
+                const v = e.target.value;
+                setReplyText(v);
+                if (v.trim()) startThreadTyping(); else stopThreadTyping();
+                detectSuggest(v, e.target.selectionStart);
+              }}
+              onKeyDown={handleKeyDown}
+              onFocus={() => setFocused(true)}
+              onBlur={() => { setFocused(false); stopThreadTyping(); setTimeout(() => setSuggest(null), 150); }}
+              placeholder="返信する…"
+              aria-label="スレッドに返信する"
+              rows={1}
+              disabled={sending}
+              className="block w-full px-3 py-[11px] text-[15px] resize-none focus:outline-none bg-transparent placeholder:text-[var(--sk-text-3)]"
+              style={{ color: 'var(--sk-text)', minHeight: 44, maxHeight: 200, lineHeight: '22px' }}
+            />
+
+            {/* Also send to channel */}
+            {channel && (
+              <label className="flex items-center gap-2 px-3 pb-1 cursor-pointer select-none w-fit">
+                <input
+                  type="checkbox"
+                  checked={alsoSendToChannel}
+                  onChange={(e) => setAlsoSendToChannel(e.target.checked)}
+                  className="w-3.5 h-3.5 cursor-pointer"
+                  style={{ accentColor: 'var(--sk-link)' }}
+                />
+                <span className="flex items-center gap-0.5 text-[13px]" style={{ color: 'var(--sk-text-2)' }}>
+                  {isDM ? (
+                    'ダイレクトメッセージにも送信'
+                  ) : (
+                    <>
+                      以下にも投稿する：
+                      {channel.isPrivate
+                        ? <LockIcon className="flex-shrink-0" style={{ width: 12, height: 12 }} />
+                        : <HashIcon className="flex-shrink-0" style={{ width: 12, height: 12 }} />}
+                      <span className="font-bold truncate">{channel.name}</span>
+                    </>
+                  )}
+                </span>
+              </label>
+            )}
+
+            {/* Bottom toolbar */}
+            <div className="flex items-center justify-between px-1.5" style={{ height: 40 }}>
+              <div className="flex items-center gap-0.5 relative">
+                <IconBtn size={28} round title="添付" active={plusMenuOpen} onClick={() => setPlusMenuOpen((v) => !v)}>
+                  <PlusIcon className={iconCls} />
+                </IconBtn>
+                {plusMenuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-20" onClick={() => setPlusMenuOpen(false)} />
+                    <div className="absolute bottom-full left-0 mb-2 z-30 py-2" style={{ ...POPOVER_STYLE, minWidth: 280 }}>
+                      <MenuItem onClick={() => { setPlusMenuOpen(false); wrapSelection('```\n', '\n```', 'コードをここに入力'); }}>
+                        コードまたはテキストのスニペット
+                      </MenuItem>
+                      <MenuItem onClick={() => { setPlusMenuOpen(false); toast.info('スレッドでのファイルアップロードはこのバージョンでは未対応です'); }}>
+                        ファイルをアップロード
+                      </MenuItem>
+                    </div>
+                  </>
+                )}
+                <IconBtn size={28} title={showToolbar ? '書式設定を非表示にする' : '書式設定を表示する'} active={showToolbar} onClick={() => setShowToolbar((v) => !v)}>
+                  <FormatAaIcon className={iconCls} />
+                </IconBtn>
+                <button
+                  ref={inputEmojiRef}
+                  type="button"
+                  title="絵文字"
+                  aria-label="絵文字"
+                  onClick={() => setEmojiPickerOpen((p) => !p)}
+                  className="w-7 h-7 flex items-center justify-center flex-shrink-0"
+                  style={{ borderRadius: 4, color: emojiPickerOpen ? 'var(--sk-text)' : 'var(--sk-text-2)', background: emojiPickerOpen ? 'var(--sk-subtle)' : 'transparent' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--sk-subtle)'; e.currentTarget.style.color = 'var(--sk-text)'; }}
+                  onMouseLeave={(e) => { if (!emojiPickerOpen) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--sk-text-2)'; } }}
+                >
+                  <EmojiIcon className={iconCls} />
+                </button>
+                <IconBtn size={28} title="メンション" onMouseDown={(e) => {
+                  e.preventDefault();
+                  const el = textareaRef.current;
+                  const caret = el ? el.selectionStart : replyText.length;
+                  const needSpace = caret > 0 && !/\s/.test(replyText[caret - 1] ?? ' ');
+                  const pos = insertAtCaret(needSpace ? ' @' : '@');
+                  setSuggest({ query: '', start: pos - 1 });
+                  setSuggestIndex(0);
+                }}>
+                  <AtIcon className={iconCls} />
+                </IconBtn>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSend}
+                disabled={!canSend}
+                title={canSend ? '送信する (Enter)' : 'メッセージを入力してください'}
+                aria-label="送信する"
+                className="w-7 h-7 flex items-center justify-center flex-shrink-0"
+                style={{
+                  borderRadius: 4,
+                  background: canSend ? 'var(--sk-green)' : 'transparent',
+                  color: canSend ? '#FFFFFF' : 'var(--sk-text-3)',
+                  cursor: canSend ? 'pointer' : 'default',
+                  transition: 'background 120ms',
+                }}
+                onMouseEnter={(e) => { if (canSend) e.currentTarget.style.background = 'var(--sk-green-hover)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = canSend ? 'var(--sk-green)' : 'transparent'; }}
+              >
+                <SendFilledIcon className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Typing indicator / hint */}
+          <div className="flex items-center justify-between min-h-[20px] mt-0.5 text-[12px]" aria-live="polite" aria-atomic="true" style={{ color: 'var(--sk-text-2)' }}>
+            <span className="truncate">
+              {threadTypers.length === 1
+                ? `${threadTypers[0].displayName} が入力中…`
+                : threadTypers.length === 2
+                ? `${threadTypers[0].displayName} と ${threadTypers[1].displayName} が入力中…`
+                : threadTypers.length > 2
+                ? `${threadTypers.length} 人が入力中…`
+                : ''}
+            </span>
+            {hasText && (
+              <span className="flex-shrink-0 hidden md:inline" style={{ color: 'var(--sk-text-3)' }}>
+                <b>Shift + Enter</b> で改行
+              </span>
+            )}
+          </div>
         </div>
 
         <div ref={bottomRef} />
       </div>
 
-      {/* Thread typing indicator */}
-      <div className="px-4 min-h-[20px] flex items-center" aria-live="polite" aria-atomic="true">
-        {threadTypers.length > 0 && (
-          <div className="flex items-center gap-2">
-            <div className="flex items-end gap-[3px]" style={{ height: '14px' }}>
-              {[0, 1, 2].map((i) => (
-                <span
-                  key={i}
-                  className="block w-1.5 h-1.5 rounded-full"
-                  style={{
-                    background: '#616061',
-                    animation: `typingBounce 1.2s ease-in-out ${i * 0.2}s infinite`,
-                  }}
-                />
-              ))}
-            </div>
-            <span className="text-[12px] text-[#616061]">
-              {threadTypers.length === 1
-                ? `${threadTypers[0].displayName} が入力中...`
-                : threadTypers.length === 2
-                ? `${threadTypers[0].displayName} と ${threadTypers[1].displayName} が入力中...`
-                : `${threadTypers.length}人が入力中...`}
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* Reply input */}
-      <div className="px-4 py-3 flex-shrink-0" style={{ borderTop: '1px solid #E8E8E8' }}>
-        <div
-          className="transition-all"
-          style={{
-            border: `1px solid ${hasText ? '#1D1C1D' : threadInputFocused ? '#1D9BD1' : '#DDDDDD'}`,
-            borderRadius: '8px',
-            boxShadow: hasText ? '0 0 0 1px #1D1C1D' : threadInputFocused ? '0 0 0 1px #1D9BD1' : 'none',
-            transition: 'border-color 150ms, box-shadow 150ms',
-          }}
-        >
-          {/* Mini formatting toolbar */}
-          <div className="flex items-center gap-0.5 px-2 pt-1.5" style={{ borderBottom: '1px solid #F0F0F0' }}>
-            {[
-              { title: '太字 (Ctrl+B)', label: 'B', bold: true, action: () => wrapSelection('*') },
-              { title: '斜体 (Ctrl+I)', label: 'I', italic: true, action: () => wrapSelection('_') },
-              { title: '打ち消し線', label: 'S', strike: true, action: () => wrapSelection('~') },
-            ].map(({ title, label, bold, italic, strike, action }) => (
-              <button
-                key={label}
-                title={title}
-                onMouseDown={(e) => { e.preventDefault(); action(); }}
-                className="w-6 h-6 flex items-center justify-center rounded text-[12px] press-subtle"
-                style={{ color: '#616061' }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = '#EBEBEB'; e.currentTarget.style.color = '#1D1C1D'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#616061'; }}
-              >
-                <span style={{
-                  fontWeight: bold ? 700 : 400,
-                  fontStyle: italic ? 'italic' : 'normal',
-                  textDecoration: strike ? 'line-through' : 'none',
-                }}>{label}</span>
-              </button>
-            ))}
-            <div className="w-px h-3.5 bg-[#DDDDDD] mx-0.5" />
-            <button
-              title="コード"
-              onMouseDown={(e) => { e.preventDefault(); wrapSelection('`'); }}
-              className="w-6 h-6 flex items-center justify-center rounded press-subtle"
-              style={{ color: '#616061' }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = '#EBEBEB'; e.currentTarget.style.color = '#1D1C1D'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#616061'; }}
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25" />
-              </svg>
-            </button>
-          </div>
-          <textarea
-            ref={textareaRef}
-            value={replyText}
-            onChange={(e) => { setReplyText(e.target.value); if (e.target.value.trim()) startThreadTyping(); else stopThreadTyping(); }}
-            onKeyDown={handleKeyDown}
-            onFocus={() => setThreadInputFocused(true)}
-            onBlur={() => { setThreadInputFocused(false); stopThreadTyping(); }}
-            placeholder={`${channelLabel ? channelLabel + ' の' : ''}スレッドに返信...`}
-            aria-label="スレッドへの返信を入力"
-            rows={2}
-            disabled={sending}
-            className="w-full px-3 pt-2.5 pb-1 text-[15px] resize-none focus:outline-none bg-transparent placeholder-[#616061]"
-            style={{ color: '#1D1C1D', minHeight: '44px', lineHeight: '1.46875' }}
-            onInput={(e) => {
-              const el = e.currentTarget;
-              el.style.height = 'auto';
-              el.style.height = Math.min(el.scrollHeight, 120) + 'px';
-            }}
-          />
-          <div className="flex items-center justify-between px-2 pb-2">
-            <div className="flex items-center gap-0.5">
-              {/* Emoji picker */}
-              <button
-                ref={inputEmojiRef}
-                title="絵文字"
-                onClick={() => {
-                  const rect = inputEmojiRef.current?.getBoundingClientRect();
-                  if (rect) setEmojiPickerOpen((p) => !p);
-                }}
-                className="w-7 h-7 flex items-center justify-center rounded text-[#616061] hover:text-[#1D1C1D] hover:bg-[#F0F0F0] transition-colors"
-              >
-                <span style={{ fontSize: '16px', lineHeight: 1 }}>😊</span>
-              </button>
-              {emojiPickerOpen && inputEmojiRef.current && (
-                <EmojiPickerPortal
-                  anchorRect={inputEmojiRef.current.getBoundingClientRect()}
-                  onSelect={(emoji) => { setReplyText((t) => t + emoji); setEmojiPickerOpen(false); }}
-                  onClose={() => setEmojiPickerOpen(false)}
-                />
-              )}
-            </div>
-            <button
-              onClick={handleSend}
-              disabled={!hasText || sending}
-              title={hasText ? '送信 (Enter)' : 'テキストを入力してください'}
-              className="w-8 h-8 flex items-center justify-center rounded-lg press-strong"
-              style={{
-                background: hasText && !sending ? 'linear-gradient(135deg, #007A5A, #009E74)' : '#E8E8E8',
-                color: hasText && !sending ? '#FFFFFF' : '#AAAAAA',
-                cursor: hasText && !sending ? 'pointer' : 'not-allowed',
-                boxShadow: hasText && !sending ? '0 2px 6px rgba(0,122,90,0.35)' : 'none',
-                transition: 'background 200ms, box-shadow 200ms, transform 100ms, opacity 100ms',
-              }}
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-              </svg>
-            </button>
-          </div>
-        </div>
-        <div className="flex items-center justify-between mt-1 px-1">
-          <p className="text-[12px]" style={{ color: '#616061' }}>
-            <kbd className="font-mono px-1 rounded" style={{ background: '#F8F8F8', border: '1px solid #DDDDDD' }}>Enter</kbd> で送信・
-            <kbd className="font-mono px-1 rounded" style={{ background: '#F8F8F8', border: '1px solid #DDDDDD' }}>Shift+Enter</kbd> で改行
-          </p>
-          {!isDM && (
-            <label className="flex items-center gap-1.5 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={alsoSendToChannel}
-                onChange={(e) => setAlsoSendToChannel(e.target.checked)}
-                className="w-3.5 h-3.5 rounded accent-[#1264A3] cursor-pointer"
-              />
-              <span className="text-[12px]" style={{ color: '#616061' }}>
-                {channelLabel} にも送信
-              </span>
-            </label>
-          )}
-        </div>
-      </div>
+      {emojiPickerOpen && inputEmojiRef.current && (
+        <EmojiPickerPortal
+          anchorRect={inputEmojiRef.current.getBoundingClientRect()}
+          placeAbove
+          onSelect={(emoji) => { insertAtCaret(emoji); setEmojiPickerOpen(false); }}
+          onClose={() => setEmojiPickerOpen(false)}
+        />
+      )}
       {reactionAnchor && (
         <EmojiPickerPortal
           anchorRect={reactionAnchor.rect}
-          onSelect={(emoji) => {
-            handleReaction(reactionAnchor.targetId, emoji, reactionAnchor.isParent);
-          }}
+          onSelect={(emoji) => handleReaction(reactionAnchor.targetId, emoji, reactionAnchor.isParent)}
           onClose={() => setReactionAnchor(null)}
         />
       )}

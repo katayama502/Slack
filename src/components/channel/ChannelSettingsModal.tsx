@@ -1,26 +1,65 @@
-import { useState } from 'react';
+// ─────────────────────────────────────────────────────────────────────────────
+// チャンネル詳細モーダル（Slack の「チャンネル詳細」準拠）
+// タブ: 概要 / メンバー / 設定
+// ─────────────────────────────────────────────────────────────────────────────
+import { useEffect, useState } from 'react';
+import { format } from 'date-fns';
+import { ja } from 'date-fns/locale';
 import { useAppStore } from '../../store/useAppStore';
 import { updateChannelDescription, leaveChannel } from '../../services';
 import { toast } from '../ui/Toast';
+import Avatar from '../ui/Avatar';
+import { CloseIcon, HashIcon, LinkIcon, LockIcon, BellIcon } from '../ui/icons';
 
-export default function ChannelSettingsModal({ onClose }: { onClose: () => void }) {
+export type ChannelDetailsTab = 'about' | 'members' | 'settings';
+
+const cardStyle: React.CSSProperties = {
+  border: '1px solid var(--sk-border)',
+  borderRadius: 'var(--sk-radius-card)',
+  background: '#FFFFFF',
+};
+
+export default function ChannelSettingsModal({
+  onClose,
+  initialTab = 'about',
+}: {
+  onClose: () => void;
+  initialTab?: ChannelDetailsTab;
+}) {
   const { user } = useAppStore((s) => s.auth);
   const users = useAppStore((s) => s.users);
   const activeChannelId = useAppStore((s) => s.activeChannelId);
   const channels = useAppStore((s) => s.channels);
   const updateChannel = useAppStore((s) => s.updateChannel);
   const setActiveChannel = useAppStore((s) => s.setActiveChannel);
+  const notifPref = useAppStore((s) => (activeChannelId ? s.channelNotifPrefs[activeChannelId] ?? 'all' : 'all'));
+  const setChannelNotifPref = useAppStore((s) => s.setChannelNotifPref);
 
   const channel = channels.find((c) => c.id === activeChannelId);
-  const [tab, setTab] = useState<'info' | 'members'>('info');
+  const [tab, setTab] = useState<ChannelDetailsTab>(initialTab);
   const [description, setDescription] = useState(channel?.description ?? '');
   const [editingDesc, setEditingDesc] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [memberFilter, setMemberFilter] = useState('');
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   if (!channel || !activeChannelId) return null;
 
   const members = users.filter((u) => channel.members?.includes(u.uid));
+  const filteredMembers = memberFilter.trim()
+    ? members.filter((m) => m.displayName.toLowerCase().includes(memberFilter.trim().toLowerCase()))
+    : members;
   const isOwner = channel.createdBy === user?.uid;
+  const creator = users.find((u) => u.uid === channel.createdBy);
+  const createdLabel = channel.createdAt?.toDate
+    ? format(channel.createdAt.toDate(), 'yyyy年M月d日', { locale: ja })
+    : '';
+  const Icon = channel.isPrivate ? LockIcon : HashIcon;
 
   const handleSaveDescription = async () => {
     setSaving(true);
@@ -49,161 +88,171 @@ export default function ChannelSettingsModal({ onClose }: { onClose: () => void 
     }
   };
 
+  const handleCopyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}?channel=${encodeURIComponent(channel.id)}`);
+      toast.success('リンクをコピーしました');
+    } catch {
+      toast.error('リンクのコピーに失敗しました');
+    }
+  };
+
+  const tabs: { key: ChannelDetailsTab; label: string }[] = [
+    { key: 'about', label: '概要' },
+    { key: 'members', label: `メンバー ${members.length}` },
+    { key: 'settings', label: '設定' },
+  ];
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center px-4"
-      style={{ background: 'rgba(0,0,0,0.5)' }}
+      style={{ background: 'rgba(0,0,0,0.45)' }}
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-xl overflow-hidden flex flex-col"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${channel.name} の詳細`}
+        className="w-full max-w-[580px] overflow-hidden flex flex-col"
         style={{
-          background: '#FFFFFF',
-          boxShadow: '0 24px 64px rgba(0,0,0,0.25), 0 0 0 1px rgba(0,0,0,0.06)',
-          maxHeight: '80vh',
+          background: '#F8F8F8',
+          borderRadius: 'var(--sk-radius-card)',
+          boxShadow: '0 18px 48px rgba(0,0,0,0.3)',
+          maxHeight: '85vh',
           animation: 'popIn 150ms ease',
         }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid #EEEEEE' }}>
-          <div className="flex items-center gap-2">
-            <span className="text-[16px] font-bold text-[#1D1C1D]">#{channel.name}</span>
-          </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded press-subtle"
-            style={{ color: '#616061' }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; e.currentTarget.style.color = '#1D1C1D'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#616061'; }}
-            title="閉じる"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        {/* Tabs */}
-        <div className="flex" style={{ borderBottom: '1px solid #EEEEEE' }}>
-          {[
-            { key: 'info', label: '概要' },
-            { key: 'members', label: `メンバー (${members.length})` },
-          ].map((t) => (
+        <div className="bg-white px-7 pt-6">
+          <div className="flex items-start justify-between gap-3">
+            <h2 className="flex items-center gap-1.5 text-[22px] font-black leading-tight min-w-0" style={{ color: 'var(--sk-text)' }}>
+              <Icon className="w-[20px] h-[20px] flex-shrink-0" />
+              <span className="truncate">{channel.name}</span>
+            </h2>
             <button
-              key={t.key}
-              onClick={() => setTab(t.key as 'info' | 'members')}
-              className="px-5 py-3 text-[14px] font-medium relative press-subtle"
-              style={{
-                color: tab === t.key ? '#1D1C1D' : '#616061',
-                borderBottom: tab === t.key ? '2px solid #1264A3' : '2px solid transparent',
-                background: 'transparent',
-                transition: 'color 150ms, border-color 150ms, background 100ms',
-              }}
-              onMouseEnter={(e) => { if (tab !== t.key) e.currentTarget.style.background = '#F8F8F8'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+              onClick={onClose}
+              title="閉じる"
+              className="w-9 h-9 -mr-2 -mt-1 flex items-center justify-center rounded-md hover:bg-[var(--sk-subtle)]"
+              style={{ color: 'var(--sk-text-2)' }}
             >
-              {t.label}
+              <CloseIcon className="w-5 h-5" />
             </button>
-          ))}
+          </div>
+          {/* Tabs */}
+          <div className="flex gap-1 mt-4" role="tablist">
+            {tabs.map((t) => {
+              const active = tab === t.key;
+              return (
+                <button
+                  key={t.key}
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setTab(t.key)}
+                  className="relative h-[38px] px-3 text-[13px] font-bold"
+                  style={{ color: active ? 'var(--sk-text)' : 'var(--sk-text-2)' }}
+                >
+                  {t.label}
+                  <span
+                    className="absolute left-0 right-0 bottom-0 h-[2px] rounded-t"
+                    style={{ background: active ? 'var(--sk-accent)' : 'transparent' }}
+                  />
+                </button>
+              );
+            })}
+          </div>
         </div>
+        <div style={{ borderTop: '1px solid var(--sk-border)' }} />
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-5">
-          {tab === 'info' && (
-            <div className="flex flex-col gap-5">
-              {/* Channel name */}
-              <div>
-                <p className="text-[12px] font-semibold text-[#616061] uppercase tracking-wide mb-1.5">チャンネル名</p>
-                <p className="text-[15px] text-[#1D1C1D] font-medium">#{channel.name}</p>
-              </div>
-
-              {/* Description */}
-              <div>
-                <p className="text-[12px] font-semibold text-[#616061] uppercase tracking-wide mb-1.5">説明</p>
-                {editingDesc ? (
-                  <div>
-                    <textarea
-                      value={description}
-                      onChange={(e) => setDescription(e.target.value)}
-                      className="w-full text-[14px] text-[#1D1C1D] resize-none focus:outline-none p-2 rounded"
-                      style={{ border: '1px solid #1D9BD1', boxShadow: '0 0 0 1px #1D9BD1', minHeight: '80px' }}
-                      placeholder="チャンネルの説明を入力..."
-                      autoFocus
-                    />
-                    <div className="flex gap-2 mt-2">
+        <div className="flex-1 overflow-y-auto px-7 py-5">
+          {tab === 'about' && (
+            <div className="flex flex-col gap-3">
+              <div style={cardStyle}>
+                {/* Name */}
+                <div className="px-4 py-3" style={{ borderBottom: '1px solid var(--sk-border)' }}>
+                  <p className="text-[15px] font-bold" style={{ color: 'var(--sk-text)' }}>チャンネル名</p>
+                  <p className="flex items-center gap-1 text-[15px] mt-0.5" style={{ color: 'var(--sk-text)' }}>
+                    <Icon className="w-[14px] h-[14px]" />{channel.name}
+                  </p>
+                </div>
+                {/* Description */}
+                <div className="px-4 py-3" style={{ borderBottom: '1px solid var(--sk-border)' }}>
+                  <div className="flex items-center justify-between">
+                    <p className="text-[15px] font-bold" style={{ color: 'var(--sk-text)' }}>説明</p>
+                    {!editingDesc && (
                       <button
-                        onClick={handleSaveDescription}
-                        disabled={saving}
-                        className="px-3 py-1.5 text-[13px] text-white rounded-lg font-medium press-subtle"
-                        style={{
-                          background: saving ? '#AAAAAA' : 'linear-gradient(135deg, #007A5A, #009E74)',
-                          boxShadow: saving ? 'none' : '0 2px 6px rgba(0,122,90,0.3)',
-                        }}
+                        onClick={() => setEditingDesc(true)}
+                        className="text-[13px] font-bold hover:underline"
+                        style={{ color: 'var(--sk-link)' }}
                       >
-                        {saving ? '保存中...' : '保存'}
+                        編集
                       </button>
-                      <button
-                        onClick={() => { setEditingDesc(false); setDescription(channel.description ?? ''); }}
-                        className="px-3 py-1.5 text-[13px] rounded-lg border border-[#DDDDDD] press-subtle"
-                        onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                      >
-                        キャンセル
-                      </button>
+                    )}
+                  </div>
+                  {editingDesc ? (
+                    <div className="mt-2">
+                      <textarea
+                        value={description}
+                        onChange={(e) => setDescription(e.target.value)}
+                        maxLength={250}
+                        className="w-full text-[15px] resize-none focus:outline-none p-2 rounded-md"
+                        style={{ border: '1px solid var(--sk-blue)', boxShadow: '0 0 0 1px var(--sk-blue)', minHeight: '88px', color: 'var(--sk-text)' }}
+                        placeholder="このチャンネルについて説明を追加する"
+                        autoFocus
+                      />
+                      <div className="flex justify-end gap-2 mt-2">
+                        <button
+                          onClick={() => { setEditingDesc(false); setDescription(channel.description ?? ''); }}
+                          className="h-[32px] px-3 text-[13px] font-bold rounded-md bg-white hover:bg-[var(--sk-hover)]"
+                          style={{ border: '1px solid var(--sk-border-strong)', color: 'var(--sk-text)' }}
+                        >
+                          キャンセル
+                        </button>
+                        <button
+                          onClick={handleSaveDescription}
+                          disabled={saving}
+                          className="h-[32px] px-3 text-[13px] font-bold rounded-md text-white"
+                          style={{ background: saving ? 'var(--sk-text-3)' : 'var(--sk-green)' }}
+                        >
+                          {saving ? '保存中…' : '保存する'}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <div className="flex items-start justify-between gap-3">
-                    <p className="text-[14px] text-[#616061]">
-                      {channel.description || '説明はありません'}
+                  ) : (
+                    <p className="text-[15px] mt-0.5 whitespace-pre-wrap break-words" style={{ color: channel.description ? 'var(--sk-text)' : 'var(--sk-text-2)' }}>
+                      {channel.description || '説明を追加する'}
                     </p>
-                    <button
-                      onClick={() => setEditingDesc(true)}
-                      className="text-[13px] text-[#1264A3] hover:underline flex-shrink-0"
-                    >
-                      編集
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Created by */}
-              <div>
-                <p className="text-[12px] font-semibold text-[#616061] uppercase tracking-wide mb-1.5">作成者</p>
-                <div className="flex items-center gap-2">
-                  {(() => {
-                    const creator = users.find((u) => u.uid === channel.createdBy);
-                    return creator ? (
-                      <>
-                        {creator.photoURL ? (
-                          <img src={creator.photoURL} alt={creator.displayName} className="w-6 h-6 rounded object-cover" />
-                        ) : (
-                          <div className="w-6 h-6 rounded flex items-center justify-center text-white text-[10px] font-bold" style={{ background: '#1164A3' }}>
-                            {creator.displayName[0].toUpperCase()}
-                          </div>
-                        )}
-                        <span className="text-[14px] text-[#1D1C1D]">{creator.displayName}</span>
-                      </>
-                    ) : <span className="text-[14px] text-[#616061]">不明</span>;
-                  })()}
+                  )}
+                </div>
+                {/* Created by */}
+                <div className="px-4 py-3">
+                  <p className="text-[15px] font-bold" style={{ color: 'var(--sk-text)' }}>作成者</p>
+                  <p className="text-[15px] mt-0.5" style={{ color: 'var(--sk-text)' }}>
+                    {creator?.displayName ?? '不明'}{createdLabel && ` が ${createdLabel} に作成`}
+                  </p>
                 </div>
               </div>
 
-              {/* Leave channel */}
+              <div style={cardStyle}>
+                <button
+                  onClick={handleCopyLink}
+                  className="w-full flex items-center gap-2 px-4 py-3 text-[15px] font-bold text-left hover:bg-[var(--sk-hover)]"
+                  style={{ color: 'var(--sk-link)', borderRadius: 'var(--sk-radius-card)' }}
+                >
+                  <LinkIcon className="w-4 h-4" />
+                  チャンネルへのリンクをコピー
+                </button>
+              </div>
+
               {!isOwner && (
-                <div style={{ borderTop: '1px solid #EEEEEE', paddingTop: '16px' }}>
+                <div style={cardStyle}>
                   <button
                     onClick={handleLeave}
-                    className="flex items-center gap-2 text-[14px] text-[#E01E5A] px-3 py-2 rounded-lg press-subtle"
-                    style={{ background: 'transparent' }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = '#FFF0F3'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                    className="w-full px-4 py-3 text-[15px] font-bold text-left hover:bg-[var(--sk-hover)]"
+                    style={{ color: 'var(--sk-red)', borderRadius: 'var(--sk-radius-card)' }}
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                    </svg>
-                    #{channel.name} から退出
+                    チャンネルから退出する
                   </button>
                 </div>
               )}
@@ -211,59 +260,83 @@ export default function ChannelSettingsModal({ onClose }: { onClose: () => void 
           )}
 
           {tab === 'members' && (
-            <div className="flex flex-col gap-0.5">
-              {members.map((member) => (
-                <div
-                  key={member.uid}
-                  className="flex items-center gap-3 px-2 py-2 rounded"
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(29,28,29,0.04)'; }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
-                >
-                  <div className="relative flex-shrink-0">
-                    {member.photoURL ? (
-                      <img src={member.photoURL} alt={member.displayName} className="w-9 h-9 rounded object-cover" />
-                    ) : (
-                      <div className="w-9 h-9 rounded flex items-center justify-center text-white font-bold" style={{ background: '#1164A3' }}>
-                        {member.displayName[0].toUpperCase()}
+            <div className="flex flex-col gap-2">
+              <input
+                type="text"
+                value={memberFilter}
+                onChange={(e) => setMemberFilter(e.target.value)}
+                placeholder="メンバーを検索"
+                className="w-full h-[36px] px-3 text-[15px] rounded-lg focus:outline-none bg-white"
+                style={{ border: '1px solid var(--sk-border-strong)', color: 'var(--sk-text)' }}
+              />
+              <div style={cardStyle} className="py-1">
+                {filteredMembers.length === 0 && (
+                  <p className="text-[15px] px-4 py-3" style={{ color: 'var(--sk-text-2)' }}>該当するメンバーはいません</p>
+                )}
+                {filteredMembers.map((member) => (
+                  <div key={member.uid} className="flex items-center gap-3 px-4 py-2 hover:bg-[var(--sk-hover)]">
+                    <Avatar name={member.displayName} photoURL={member.photoURL} size={36} online={member.online} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[15px] font-bold truncate" style={{ color: 'var(--sk-text)' }}>
+                          {member.displayName}
+                          {member.uid === user?.uid && <span className="font-normal" style={{ color: 'var(--sk-text-2)' }}>（自分）</span>}
+                        </span>
+                        {member.uid === channel.createdBy && (
+                          <span className="text-[11px] px-1.5 rounded font-bold" style={{ background: 'var(--sk-subtle)', color: 'var(--sk-text-2)' }}>
+                            作成者
+                          </span>
+                        )}
                       </div>
-                    )}
-                    <span
-                      className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white ${member.online ? 'bg-[#007A5A]' : 'bg-[#AAAAAA]'}`}
+                      {member.status && (member.status.emoji || member.status.text) && (
+                        <p className="text-[13px] truncate" style={{ color: 'var(--sk-text-2)' }}>
+                          {member.status.emoji} {member.status.text}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {tab === 'settings' && (
+            <div className="flex flex-col gap-3">
+              <div style={cardStyle} className="px-4 py-3">
+                <p className="flex items-center gap-2 text-[15px] font-bold mb-2" style={{ color: 'var(--sk-text)' }}>
+                  <BellIcon className="w-4 h-4" />通知
+                </p>
+                {([
+                  ['all', 'すべての新規メッセージ'],
+                  ['mentions', '@メンションのみ'],
+                  ['off', 'オフ（ミュート）'],
+                ] as const).map(([value, label]) => (
+                  <label key={value} className="flex items-center gap-2 py-1 text-[15px] cursor-pointer" style={{ color: 'var(--sk-text)' }}>
+                    <input
+                      type="radio"
+                      name="notif-pref-modal"
+                      checked={notifPref === value}
+                      onChange={() => setChannelNotifPref(activeChannelId, value)}
                     />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[14px] font-semibold text-[#1D1C1D] truncate">{member.displayName}</span>
-                      {member.uid === channel.createdBy && (
-                        <span
-                          className="text-[10px] px-1.5 py-0.5 rounded font-medium"
-                          style={{ background: '#F0F0F0', color: '#616061' }}
-                        >
-                          作成者
-                        </span>
-                      )}
-                      {member.uid === user?.uid && (
-                        <span
-                          className="text-[10px] px-1.5 py-0.5 rounded font-medium"
-                          style={{ background: '#E8F5FA', color: '#1264A3' }}
-                        >
-                          あなた
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[12px]" style={{ color: member.online ? '#007A5A' : '#616061' }}>
-                        {member.online ? 'アクティブ' : 'オフライン'}
-                      </span>
-                      {member.status && (
-                        <span className="text-[12px] text-[#616061]">
-                          · {member.status.emoji} {member.status.text}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
+                    {label}
+                  </label>
+                ))}
+              </div>
+              <div style={cardStyle}>
+                {isOwner ? (
+                  <p className="px-4 py-3 text-[13px]" style={{ color: 'var(--sk-text-2)' }}>
+                    チャンネルの作成者は退出できません。
+                  </p>
+                ) : (
+                  <button
+                    onClick={handleLeave}
+                    className="w-full px-4 py-3 text-[15px] font-bold text-left hover:bg-[var(--sk-hover)]"
+                    style={{ color: 'var(--sk-red)', borderRadius: 'var(--sk-radius-card)' }}
+                  >
+                    チャンネルから退出する
+                  </button>
+                )}
+              </div>
             </div>
           )}
         </div>

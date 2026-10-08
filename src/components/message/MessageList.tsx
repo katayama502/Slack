@@ -1,25 +1,41 @@
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
+import ReactDOM from 'react-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useAppStore } from '../../store/useAppStore';
 import { useMessages } from '../../hooks/useMessages';
-import { getLastVisit } from '../../hooks/useUnreadChannels';
+import { getVisitBeforeOpen } from '../../hooks/useUnreadChannels';
 import MessageItem from './MessageItem';
+import ChannelIntro from '../channel/ChannelIntro';
+import { ChevronDownIcon, ArrowDownIcon, SearchIcon } from '../ui/icons';
 import { formatDateDivider, isSameDay, isCompactMessage } from '../../utils/formatDate';
-import type { Message, User } from '../../types';
+import type { Message } from '../../types';
 
 // Row types for the virtual list
-type DateDividerRow = { type: 'divider'; date: string; key: string };
-type UnreadDividerRow = { type: 'unread'; key: string };
-type MessageRow = { type: 'message'; message: Message; isCompact: boolean; key: string };
-type Row = DateDividerRow | UnreadDividerRow | MessageRow;
+type IntroRow = { type: 'intro'; key: string; day: null };
+type DateDividerRow = { type: 'divider'; date: string; key: string; day: number };
+type UnreadDividerRow = { type: 'unread'; key: string; day: number };
+type MessageRow = { type: 'message'; message: Message; isCompact: boolean; key: string; day: number };
+type Row = IntroRow | DateDividerRow | UnreadDividerRow | MessageRow;
 
-function buildRows(messages: Message[], lastVisitMs: number): Row[] {
+function dayStart(ms: number): number {
+  const d = new Date(ms);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+function msgMillis(m: Message): number {
+  return m.createdAt?.toMillis?.() ?? Date.now();
+}
+
+function buildRows(messages: Message[], lastVisitMs: number, withIntro: boolean, myUid?: string): Row[] {
   const rows: Row[] = [];
+  if (withIntro) rows.push({ type: 'intro', key: 'intro', day: null });
   let unreadInserted = false;
 
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
     const prev = messages[i - 1];
+    const day = dayStart(msgMillis(msg));
 
     // Date divider
     if (!prev || !isSameDay(prev.createdAt, msg.createdAt)) {
@@ -27,6 +43,7 @@ function buildRows(messages: Message[], lastVisitMs: number): Row[] {
         type: 'divider',
         date: formatDateDivider(msg.createdAt),
         key: `divider-${msg.id}`,
+        day,
       });
     }
 
@@ -34,10 +51,11 @@ function buildRows(messages: Message[], lastVisitMs: number): Row[] {
     if (
       !unreadInserted &&
       lastVisitMs > 0 &&
+      msg.uid !== myUid &&   // 自分の投稿の前には「新着」を出さない（Slack 準拠）
       msg.createdAt &&
       msg.createdAt.toMillis() > lastVisitMs
     ) {
-      rows.push({ type: 'unread', key: 'unread-divider' });
+      rows.push({ type: 'unread', key: 'unread-divider', day });
       unreadInserted = true;
     }
 
@@ -45,107 +63,78 @@ function buildRows(messages: Message[], lastVisitMs: number): Row[] {
       ? isCompactMessage(prev.createdAt, msg.createdAt, prev.uid, msg.uid)
       : false;
 
-    rows.push({
-      type: 'message',
-      message: msg,
-      isCompact: compact,
-      key: msg.id,
-    });
+    rows.push({ type: 'message', message: msg, isCompact: compact, key: msg.id, day });
   }
   return rows;
 }
 
-function EmptyChannelState({ channelId }: { channelId: string }) {
-  const channels = useAppStore((s) => s.channels);
-  const users = useAppStore((s) => s.users);
-  const { user } = useAppStore((s) => s.auth);
-  const channel = channels.find((c) => c.id === channelId);
-
-  if (!channel) return null;
-
-  const isDM = channel.name.startsWith('__dm__');
-  const otherUser: User | undefined = isDM
-    ? users.find((u) => u.uid !== user?.uid && channel.members?.includes(u.uid))
-    : undefined;
-  const isSelfDM = isDM && !otherUser && user;
-  const selfUser: User | undefined = isSelfDM ? users.find((u) => u.uid === user?.uid) : undefined;
-
-  if (isSelfDM) {
-    return (
-      <div className="flex flex-col justify-end px-5 pb-4 pt-8">
-        <div className="flex items-center gap-4 mb-4">
-          {selfUser?.photoURL ? (
-            <img src={selfUser.photoURL} alt={selfUser.displayName} className="w-16 h-16 rounded-lg object-cover" style={{ border: '3px solid #F0F0F0' }} />
-          ) : (
-            <div
-              className="w-16 h-16 rounded-lg flex items-center justify-center text-white text-2xl font-bold"
-              style={{ background: '#1164A3' }}
-            >
-              {(selfUser?.displayName ?? '?')[0].toUpperCase()}
-            </div>
-          )}
-          <div>
-            <h3 className="text-[22px] font-bold text-[#1D1C1D] leading-tight">
-              {selfUser?.displayName ?? 'あなた'} <span className="text-[16px] text-[#616061] font-normal">(自分)</span>
-            </h3>
-            <p className="text-[14px] text-[#007A5A] mt-0.5">アクティブ</p>
-          </div>
-        </div>
-        <p className="text-[15px] text-[#616061] leading-relaxed">
-          これは自分自身へのスペースです。<br />
-          メモ、リンク、ファイルなどを保存するのに使いましょう。
-        </p>
-      </div>
-    );
-  }
-
-  if (isDM && otherUser) {
-    return (
-      <div className="flex flex-col justify-end px-5 pb-4 pt-8">
-        <div className="flex items-center gap-4 mb-4">
-          {otherUser.photoURL ? (
-            <img src={otherUser.photoURL} alt={otherUser.displayName} className="w-16 h-16 rounded-lg object-cover" />
-          ) : (
-            <div
-              className="w-16 h-16 rounded-lg flex items-center justify-center text-white text-2xl font-bold"
-              style={{ background: '#1164A3' }}
-            >
-              {otherUser.displayName[0].toUpperCase()}
-            </div>
-          )}
-          <div>
-            <h3 className="text-[22px] font-bold text-[#1D1C1D] leading-tight">{otherUser.displayName}</h3>
-            <p className="text-[14px] text-[#616061] mt-0.5">
-              {otherUser.email && <span>{otherUser.email} · </span>}
-              <span className={otherUser.online ? 'text-[#007A5A]' : 'text-[#616061]'}>
-                {otherUser.online ? 'アクティブ' : 'オフライン'}
-              </span>
-            </p>
-          </div>
-        </div>
-        <p className="text-[15px] text-[#616061] leading-relaxed">
-          これは <strong className="text-[#1D1C1D]">{otherUser.displayName}</strong> との会話の始まりです。
-        </p>
-      </div>
-    );
-  }
-
+// ─── Date pill (contract §7) ─────────────────────────────────────────────────
+function DatePill({ label, onClick, raised }: { label: string; onClick: (e: React.MouseEvent<HTMLButtonElement>) => void; raised?: boolean }) {
   return (
-    <div className="flex flex-col justify-end px-5 pb-4 pt-8">
+    <button
+      onClick={onClick}
+      aria-label={`${label}（日付へ移動）`}
+      className="inline-flex items-center gap-1 h-[28px] px-4 rounded-[24px] bg-white text-[13px] font-bold whitespace-nowrap hover:bg-[var(--sk-hover)]"
+      style={{
+        color: 'var(--sk-text)',
+        border: '1px solid var(--sk-border)',
+        boxShadow: raised ? '0 1px 3px rgba(0,0,0,0.08)' : undefined,
+      }}
+    >
+      {label}
+      <ChevronDownIcon className="w-3 h-3" style={{ color: 'var(--sk-text-2)' }} />
+    </button>
+  );
+}
+
+type JumpTarget = 'today' | 'yesterday' | 'week' | 'month' | 'first';
+
+function JumpMenu({ anchor, onPick, onClose }: { anchor: DOMRect; onPick: (t: JumpTarget) => void; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  const items: [JumpTarget, string][] = [
+    ['today', '今日'],
+    ['yesterday', '昨日'],
+    ['week', '先週'],
+    ['month', '先月'],
+    ['first', '最初のメッセージ'],
+  ];
+  const width = 220;
+  return ReactDOM.createPortal(
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} />
       <div
-        className="w-14 h-14 flex items-center justify-center rounded-lg mb-3 text-white font-bold text-2xl"
-        style={{ background: '#3F0E40' }}
+        role="menu"
+        className="fixed z-50 bg-white py-2"
+        style={{
+          top: anchor.bottom + 4,
+          left: Math.max(8, Math.min(anchor.left + anchor.width / 2 - width / 2, window.innerWidth - width - 8)),
+          width,
+          border: '1px solid var(--sk-border)',
+          borderRadius: 'var(--sk-radius-card)',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+          animation: 'popIn 120ms ease',
+        }}
       >
-        #
+        <p className="px-4 pb-1 text-[13px] font-bold" style={{ color: 'var(--sk-text-2)' }}>移動先…</p>
+        {items.map(([key, label], i) => (
+          <div key={key}>
+            {i === 4 && <div className="my-2" style={{ borderTop: '1px solid var(--sk-border)' }} />}
+            <button
+              role="menuitem"
+              onClick={() => onPick(key)}
+              className="w-full h-[28px] px-4 text-left text-[15px] text-[color:var(--sk-text)] hover:bg-[var(--sk-link)] hover:text-white"
+            >
+              {label}
+            </button>
+          </div>
+        ))}
       </div>
-      <h3 className="text-[22px] font-bold text-[#1D1C1D] mb-1">#{channel.name} へようこそ</h3>
-      {channel.description && (
-        <p className="text-[15px] text-[#616061] mb-2">{channel.description}</p>
-      )}
-      <p className="text-[14px] text-[#616061]">
-        これは <strong className="text-[#1D1C1D]">#{channel.name}</strong> チャンネルの最初のメッセージです。ぜひ会話を始めましょう！
-      </p>
-    </div>
+    </>,
+    document.body
   );
 }
 
@@ -157,21 +146,32 @@ export default function MessageList() {
   const channelLoading = useAppStore((s) => s.channelLoading);
   const jumpToMessageId = useAppStore((s) => s.jumpToMessageId);
   const setJumpToMessageId = useAppStore((s) => s.setJumpToMessageId);
-  const messages = searchQuery.trim()
-    ? allMessages.filter((m) => m.text.toLowerCase().includes(searchQuery.toLowerCase()))
-    : allMessages;
+  const myUid = useAppStore((s) => s.auth.user?.uid);
+  const searching = searchQuery.trim().length > 0;
+  const messages = useMemo(
+    () =>
+      searching
+        ? allMessages.filter((m) => m.text.toLowerCase().includes(searchQuery.trim().toLowerCase()))
+        : allMessages,
+    [allMessages, searchQuery, searching]
+  );
   const parentRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
   const [showJumpBtn, setShowJumpBtn] = useState(false);
+  const [newCount, setNewCount] = useState(0);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const [jumpMenu, setJumpMenu] = useState<DOMRect | null>(null);
 
-  // チャンネル変更前の lastVisit をキャプチャ（変更後に mark されるため useRef で保持）
-  const lastVisitRef = useRef<number>(0);
-  useEffect(() => {
-    lastVisitRef.current = activeChannelId ? getLastVisit(activeChannelId) : 0;
-  }, [activeChannelId]);
+  // チャンネルを開く直前の lastVisit（チャンネル切替時に一度だけ確定させる）
+  const lastVisitMs = useMemo(
+    () => (activeChannelId ? getVisitBeforeOpen(activeChannelId) : 0),
+    [activeChannelId]
+  );
 
-  const rows = useMemo(() => buildRows(messages, lastVisitRef.current), [messages]);
+  const rows = useMemo(
+    () => buildRows(messages, searching ? 0 : lastVisitMs, !searching, myUid),
+    [messages, searching, lastVisitMs, myUid]
+  );
 
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -180,32 +180,28 @@ export default function MessageList() {
       (index: number) => {
         const row = rows[index];
         if (!row) return 40;
-        if (row.type === 'divider') return 36;
-        if (row.type === 'unread') return 32;
-        return row.isCompact ? 28 : 64;
+        if (row.type === 'intro') return 240;
+        if (row.type === 'divider') return 44;
+        if (row.type === 'unread') return 24;
+        return row.isCompact ? 26 : 60;
       },
       [rows]
     ),
     overscan: 10,
   });
 
-  const scrollToBottom = () => {
-    if (parentRef.current) {
-      parentRef.current.scrollTop = parentRef.current.scrollHeight;
-    }
-  };
-
-  // Jump to a specific message (from shared link URL)
-  useEffect(() => {
-    if (!jumpToMessageId || messages.length === 0) return;
-    const rowIdx = rows.findIndex((r) => r.type === 'message' && r.message.id === jumpToMessageId);
-    if (rowIdx === -1) return;
-    virtualizer.scrollToIndex(rowIdx, { align: 'center' });
-    setHighlightedMessageId(jumpToMessageId);
-    setJumpToMessageId(null);
-    const t = setTimeout(() => setHighlightedMessageId(null), 2000);
-    return () => clearTimeout(t);
-  }, [jumpToMessageId, messages.length]);
+  const scrollToBottom = useCallback(() => {
+    const el = parentRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    // 計測で高さが変わる場合に備え 1 フレーム後にも追従
+    requestAnimationFrame(() => {
+      if (parentRef.current) parentRef.current.scrollTop = parentRef.current.scrollHeight;
+    });
+    isAtBottomRef.current = true;
+    setNewCount(0);
+    setShowJumpBtn(false);
+  }, []);
 
   // Track if user is scrolled to bottom
   const handleScroll = () => {
@@ -214,178 +210,236 @@ export default function MessageList() {
     const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     isAtBottomRef.current = distFromBottom < 80;
     setShowJumpBtn(distFromBottom > 200);
+    if (isAtBottomRef.current) setNewCount(0);
   };
+
+  // 新着カウント（上にスクロール中に届いたメッセージ数）
+  const prevLenRef = useRef(allMessages.length);
+  useEffect(() => {
+    const delta = allMessages.length - prevLenRef.current;
+    prevLenRef.current = allMessages.length;
+    if (delta <= 0) return;
+    const last = allMessages[allMessages.length - 1];
+    if (last && last.uid === myUid) {
+      // 自分の投稿は常に最下部へ
+      requestAnimationFrame(() => scrollToBottom());
+      return;
+    }
+    if (!isAtBottomRef.current) setNewCount((c) => c + delta);
+  }, [allMessages, myUid, scrollToBottom]);
 
   // Auto-scroll to bottom when new messages arrive and user is at bottom
   useEffect(() => {
-    if (isAtBottomRef.current && parentRef.current) {
-      // Defer to allow virtualizer to measure
+    if (isAtBottomRef.current && parentRef.current && !useAppStore.getState().jumpToMessageId) {
       requestAnimationFrame(() => {
-        if (parentRef.current) {
-          parentRef.current.scrollTop = parentRef.current.scrollHeight;
-        }
+        if (parentRef.current) parentRef.current.scrollTop = parentRef.current.scrollHeight;
       });
     }
   }, [messages.length]);
 
-  // Initial scroll to bottom
+  // Initial scroll to bottom / reset when channel changes
   useEffect(() => {
-    if (parentRef.current) {
-      parentRef.current.scrollTop = parentRef.current.scrollHeight;
-      isAtBottomRef.current = true;
-    }
-  }, []);
-
-  // Reset scroll when channel changes
-  useEffect(() => {
-    if (parentRef.current) {
+    setNewCount(0);
+    setJumpMenu(null);
+    prevLenRef.current = useAppStore.getState().messages[activeChannelId ?? '']?.length ?? 0;
+    if (parentRef.current && !useAppStore.getState().jumpToMessageId) {
       parentRef.current.scrollTop = parentRef.current.scrollHeight;
       isAtBottomRef.current = true;
     }
   }, [activeChannelId]);
 
+  // Jump to a specific message (shared link URL / ピン / ファイル タブ)
+  useEffect(() => {
+    if (!jumpToMessageId || messages.length === 0) return;
+    const rowIdx = rows.findIndex((r) => r.type === 'message' && r.message.id === jumpToMessageId);
+    if (rowIdx === -1) return;
+    isAtBottomRef.current = false;
+    virtualizer.scrollToIndex(rowIdx, { align: 'center' });
+    // 計測後に再度位置合わせ
+    const raf = requestAnimationFrame(() => virtualizer.scrollToIndex(rowIdx, { align: 'center' }));
+    setHighlightedMessageId(jumpToMessageId);
+    setJumpToMessageId(null);
+    const t = setTimeout(() => setHighlightedMessageId(null), 2000);
+    return () => { clearTimeout(t); cancelAnimationFrame(raf); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jumpToMessageId, messages.length]);
+
+  // ── 日付ジャンプ ──
+  const handleJump = (target: JumpTarget) => {
+    setJumpMenu(null);
+    if (target === 'first') {
+      virtualizer.scrollToIndex(0, { align: 'start' });
+      return;
+    }
+    const today = dayStart(Date.now());
+    const d = new Date(today);
+    if (target === 'yesterday') d.setDate(d.getDate() - 1);
+    else if (target === 'week') d.setDate(d.getDate() - 7);
+    else if (target === 'month') d.setMonth(d.getMonth() - 1);
+    const threshold = d.getTime();
+    const idx = rows.findIndex((r) => r.type === 'message' && msgMillis(r.message) >= threshold);
+    if (idx === -1) {
+      scrollToBottom();
+      return;
+    }
+    // 直前に日付区切りがあればそこから表示
+    const startIdx = idx > 0 && rows[idx - 1].type === 'divider' ? idx - 1 : idx;
+    isAtBottomRef.current = false;
+    virtualizer.scrollToIndex(startIdx, { align: 'start' });
+  };
+
+  // ── Sticky 日付ピル（仮想リストのため、先頭に見えている行の日付をオーバーレイ表示） ──
+  const virtualItems = virtualizer.getVirtualItems();
+  const scrollOffset = virtualizer.scrollOffset ?? 0;
+  let stickyLabel: string | null = null;
+  {
+    const first = virtualItems.find((vi) => vi.end > scrollOffset + 4);
+    const row = first ? rows[first.index] : undefined;
+    if (row && row.day !== null && scrollOffset > 0) {
+      // 同じ日の区切りが先頭付近に見えている場合はインラインのピルを優先
+      const dividerVisibleAtTop = virtualItems.some((vi) => {
+        const r = rows[vi.index];
+        return r?.type === 'divider' && vi.start >= scrollOffset - 8 && vi.start <= scrollOffset + 36;
+      });
+      if (!dividerVisibleAtTop) {
+        const sample = rows.find((r): r is MessageRow => r.type === 'message' && r.day === row.day);
+        stickyLabel = sample ? formatDateDivider(sample.message.createdAt) : null;
+      }
+    }
+  }
+
   // Show skeleton while first load
-  if (channelLoading && messages.length === 0) {
+  if (channelLoading && allMessages.length === 0) {
     return (
-      <div className="flex-1 flex flex-col justify-end px-5 pb-3 gap-5">
-        {[72, 48, 90, 36, 60].map((w, i) => (
-          <div key={i} className="flex gap-3 items-start">
-            <div className="w-9 h-9 rounded flex-shrink-0" style={{ background: '#EBEBEB', animation: 'skeletonPulse 1.4s ease-in-out infinite', animationDelay: `${i * 0.1}s` }} />
-            <div className="flex-1 flex flex-col gap-2 pt-1">
-              <div className="h-3 rounded" style={{ width: '120px', background: '#EBEBEB', animation: 'skeletonPulse 1.4s ease-in-out infinite', animationDelay: `${i * 0.1}s` }} />
-              <div className="h-3 rounded" style={{ width: `${w}%`, background: '#EBEBEB', animation: 'skeletonPulse 1.4s ease-in-out infinite', animationDelay: `${i * 0.1 + 0.05}s` }} />
-              {w > 60 && <div className="h-3 rounded" style={{ width: `${w - 25}%`, background: '#EBEBEB', animation: 'skeletonPulse 1.4s ease-in-out infinite', animationDelay: `${i * 0.1 + 0.1}s` }} />}
+      <div className="flex-1 flex flex-col justify-end px-5 pb-3 gap-5" aria-busy="true" aria-label="メッセージを読み込み中">
+        {[72, 48, 90, 36, 60].map((w, i) => {
+          const pulse = { background: 'var(--sk-subtle)', animation: 'skeletonPulse 1.4s ease-in-out infinite', animationDelay: `${i * 0.1}s` };
+          return (
+            <div key={i} className="flex gap-2 items-start">
+              <div className="w-9 h-9 rounded-lg flex-shrink-0" style={pulse} />
+              <div className="flex-1 flex flex-col gap-2 pt-1">
+                <div className="h-3 rounded" style={{ ...pulse, width: '120px' }} />
+                <div className="h-3 rounded" style={{ ...pulse, width: `${w}%` }} />
+                {w > 60 && <div className="h-3 rounded" style={{ ...pulse, width: `${w - 25}%` }} />}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     );
   }
 
   if (messages.length === 0) {
     // 検索中でゼロ件
-    if (searchQuery.trim()) {
+    if (searching) {
       return (
-        <div className="flex-1 flex flex-col items-center justify-center gap-3 px-5">
-          <svg className="w-12 h-12 text-[#DDDDDD]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-          </svg>
-          <p className="text-[15px] font-bold text-[#1D1C1D]">「{searchQuery}」に一致するメッセージはありません</p>
-          <p className="text-[13px] text-[#616061]">別のキーワードで検索してみてください</p>
+        <div className="flex-1 flex flex-col items-center justify-center gap-2 px-5 text-center">
+          <SearchIcon className="w-10 h-10 mb-1" style={{ color: 'var(--sk-text-3)' }} />
+          <p className="text-[15px] font-bold" style={{ color: 'var(--sk-text)' }}>「{searchQuery}」に一致するメッセージはありません</p>
+          <p className="text-[13px]" style={{ color: 'var(--sk-text-2)' }}>別のキーワードで検索してみてください</p>
         </div>
       );
     }
     return (
-      <div className="flex-1 flex flex-col justify-end">
-        {activeChannelId && <EmptyChannelState channelId={activeChannelId} />}
+      <div className="flex-1 flex flex-col justify-end overflow-y-auto">
+        {activeChannelId && <ChannelIntro channelId={activeChannelId} />}
       </div>
     );
   }
 
   return (
     <div className="relative flex-1 min-h-0">
-    <div
-      ref={parentRef}
-      role="log"
-      aria-label="メッセージ一覧"
-      aria-live="polite"
-      onScroll={handleScroll}
-      className="h-full overflow-y-auto"
-    >
       <div
-        style={{
-          height: virtualizer.getTotalSize(),
-          width: '100%',
-          position: 'relative',
-        }}
+        ref={parentRef}
+        role="log"
+        aria-label="メッセージ一覧"
+        aria-live="polite"
+        onScroll={handleScroll}
+        className="h-full overflow-y-auto"
       >
-        {virtualizer.getVirtualItems().map((virtualItem) => {
-          const row = rows[virtualItem.index];
-          if (!row) return null;
+        <div style={{ height: virtualizer.getTotalSize(), width: '100%', position: 'relative' }}>
+          {virtualItems.map((virtualItem) => {
+            const row = rows[virtualItem.index];
+            if (!row) return null;
 
-          return (
-            <div
-              key={virtualItem.key}
-              data-index={virtualItem.index}
-              ref={virtualizer.measureElement}
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                transform: `translateY(${virtualItem.start}px)`,
-              }}
-            >
-              {row.type === 'divider' ? (
-                <div className="flex items-center gap-3 px-5 py-3">
-                  <hr className="flex-1" style={{ borderColor: '#DDDDDD' }} />
-                  <span
-                    className="text-[12px] font-bold px-3 py-0.5"
-                    style={{
-                      color: '#616061',
-                      border: '1px solid #DDDDDD',
-                      borderRadius: '24px',
-                      whiteSpace: 'nowrap',
-                    }}
+            return (
+              <div
+                key={virtualItem.key}
+                data-index={virtualItem.index}
+                ref={virtualizer.measureElement}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  transform: `translateY(${virtualItem.start}px)`,
+                }}
+              >
+                {row.type === 'intro' ? (
+                  activeChannelId && <ChannelIntro channelId={activeChannelId} />
+                ) : row.type === 'divider' ? (
+                  <div className="relative flex items-center justify-center h-[44px]" role="separator" aria-label={row.date}>
+                    <div className="absolute left-0 right-0 top-1/2 h-px" style={{ background: 'var(--sk-border)' }} />
+                    <div className="relative">
+                      <DatePill label={row.date} onClick={(e) => setJumpMenu(e.currentTarget.getBoundingClientRect())} />
+                    </div>
+                  </div>
+                ) : row.type === 'unread' ? (
+                  <div className="relative flex items-center justify-end h-[24px] pr-5" role="separator" aria-label="新着">
+                    <div className="absolute left-0 right-0 top-1/2 h-px" style={{ background: 'var(--sk-red)' }} />
+                    <span className="relative bg-white pl-1.5 text-[12px] font-bold leading-none" style={{ color: 'var(--sk-red)' }}>
+                      新着
+                    </span>
+                  </div>
+                ) : (
+                  <div
+                    style={
+                      highlightedMessageId === row.message.id
+                        ? { animation: 'msgFlash 2s ease-out' }
+                        : undefined
+                    }
                   >
-                    {row.date}
-                  </span>
-                  <hr className="flex-1" style={{ borderColor: '#DDDDDD' }} />
-                </div>
-              ) : row.type === 'unread' ? (
-                <div className="flex items-center gap-3 px-5 py-2">
-                  <hr className="flex-1" style={{ borderColor: '#E01E5A' }} />
-                  <span
-                    className="text-[11px] font-bold px-2.5 py-0.5 text-white"
-                    style={{
-                      background: '#E01E5A',
-                      borderRadius: '24px',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    新着メッセージ
-                  </span>
-                  <hr className="flex-1" style={{ borderColor: '#E01E5A' }} />
-                </div>
-              ) : (
-                <div
-                  style={
-                    highlightedMessageId === row.message.id
-                      ? { animation: 'msgFlash 2s ease-out', borderRadius: '4px' }
-                      : undefined
-                  }
-                >
-                  <MessageItem
-                    message={row.message}
-                    isCompact={row.isCompact}
-                    onThreadClick={openThreadPanel}
-                    searchQuery={searchQuery}
-                  />
-                </div>
-              )}
-            </div>
-          );
-        })}
+                    <MessageItem
+                      message={row.message}
+                      isCompact={row.isCompact}
+                      onThreadClick={openThreadPanel}
+                      searchQuery={searchQuery}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
-    </div>
 
-    {/* Jump to bottom button */}
-    {showJumpBtn && (
-      <button
-        onClick={scrollToBottom}
-        className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-4 py-2 rounded-full text-[13px] font-semibold text-white z-10 press-strong"
-        style={{
-          background: 'linear-gradient(135deg, #1164A3, #1A7AC4)',
-          boxShadow: '0 4px 16px rgba(17,100,163,0.4), 0 1px 4px rgba(0,0,0,0.15)',
-          animation: 'fadeIn 200ms ease',
-        }}
-      >
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-        最新メッセージへ
-      </button>
-    )}
+      {/* Sticky date pill overlay */}
+      {stickyLabel && (
+        <div className="absolute top-[8px] left-0 right-0 flex justify-center pointer-events-none z-[5]">
+          <div className="pointer-events-auto">
+            <DatePill raised label={stickyLabel} onClick={(e) => setJumpMenu(e.currentTarget.getBoundingClientRect())} />
+          </div>
+        </div>
+      )}
+
+      {jumpMenu && <JumpMenu anchor={jumpMenu} onPick={handleJump} onClose={() => setJumpMenu(null)} />}
+
+      {/* Jump to latest */}
+      {(showJumpBtn || newCount > 0) && (
+        <button
+          onClick={scrollToBottom}
+          className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 h-[32px] px-3.5 rounded-full bg-white text-[13px] font-bold z-10 hover:bg-[var(--sk-hover)]"
+          style={{
+            color: newCount > 0 ? 'var(--sk-link)' : 'var(--sk-text)',
+            border: '1px solid var(--sk-border)',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+            animation: 'fadeIn 200ms ease',
+          }}
+        >
+          <ArrowDownIcon className="w-3.5 h-3.5" />
+          {newCount > 0 ? `新着メッセージ ${newCount} 件` : '最新のメッセージ'}
+        </button>
+      )}
     </div>
   );
 }
