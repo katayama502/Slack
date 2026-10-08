@@ -29,6 +29,7 @@ export interface Channel {
   createdAt: Timestamp;
   members: string[];       // uid[]
   isDM?: boolean;
+  isPrivate?: boolean;     // プライベートチャンネル（鍵アイコン・参加制限）
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -48,6 +49,9 @@ export interface Message {
   threadParticipants?: string[];  // uid[]
   reactions?: Record<string, string[]>; // emoji → uid[]
   channelId?: string;
+  pinned?: boolean;
+  pinnedBy?: string;       // uid
+  pinnedAt?: Timestamp;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

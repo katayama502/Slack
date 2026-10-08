@@ -81,3 +81,16 @@ export function isCompactMessage(
   const curr = toDate(currTimestamp);
   return Math.abs(curr.getTime() - prev.getTime()) < 5 * 60 * 1000;
 }
+
+/**
+ * DM 一覧・サイドバー用の日付表示（Slack 準拠）
+ * - 今日: HH:mm / 昨日: 昨日 / 今週: 火曜日 / それ以前: 9月26日
+ */
+export function formatSidebarDate(timestamp: Timestamp | null | undefined): string {
+  if (!timestamp) return '';
+  const date = toDate(timestamp);
+  if (isToday(date)) return format(date, 'HH:mm');
+  if (isYesterday(date)) return '昨日';
+  if (isThisWeek(date, { weekStartsOn: 1 })) return format(date, 'EEEE', { locale: ja });
+  return format(date, 'M月d日', { locale: ja });
+}

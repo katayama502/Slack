@@ -1,9 +1,17 @@
 import { useState, useRef, useEffect, useCallback, KeyboardEvent } from 'react';
+import { format } from 'date-fns';
 import { useAppStore } from '../../store/useAppStore';
 import { sendMessage } from '../../services';
 import { useSendTyping } from '../../hooks/useTyping';
 import { toast } from '../ui/Toast';
 import EmojiPickerComponent from '../ui/EmojiPicker';
+import Avatar from '../ui/Avatar';
+import {
+  BoldIcon, ItalicIcon, UnderlineIcon, StrikeIcon, LinkIcon, OrderedListIcon, BulletListIcon,
+  QuoteIcon, CodeIcon, CodeBlockIcon, PlusIcon, FormatAaIcon, EmojiIcon, AtIcon, VideoIcon,
+  MicIcon, SlashBoxIcon, SendFilledIcon, ChevronDownIcon, LockIcon, HashIcon, PaperclipIcon,
+  CalendarClockIcon, CloseIcon,
+} from '../ui/icons';
 import type { User } from '../../types';
 
 // ── Draft auto-save (debounced 800 ms) ───────────────────────────────────────
@@ -35,6 +43,60 @@ function useDraftAutoSave(channelId: string | null) {
   useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
 
   return { schedule, clear };
+}
+
+// ── Scheduled messages (client-side, localStorage) ───────────────────────────
+// 制約: サーバー側のスケジューラは無いため、このブラウザでアプリを開いている間にのみ送信される。
+const SCHEDULED_KEY = 'slack_clone_scheduled';
+
+export interface ScheduledItem {
+  id: string;
+  channelId: string;
+  text: string;          // markdown
+  mentions: string[];
+  sendAt: number;        // epoch ms
+  dmRecipientUid?: string;
+  uid?: string;          // 予約したユーザー（別ユーザーとして送信しないためのガード）
+}
+
+function loadScheduled(): ScheduledItem[] {
+  try {
+    const raw = localStorage.getItem(SCHEDULED_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (x): x is ScheduledItem =>
+        !!x && typeof x.id === 'string' && typeof x.channelId === 'string' &&
+        typeof x.text === 'string' && typeof x.sendAt === 'number'
+    );
+  } catch {
+    return [];
+  }
+}
+
+function saveScheduled(items: ScheduledItem[]) {
+  try {
+    localStorage.setItem(SCHEDULED_KEY, JSON.stringify(items));
+  } catch { /* storage unavailable */ }
+  window.dispatchEvent(new Event('slack-scheduled-changed'));
+}
+
+/** 二重送信防止（同一タブ内） */
+const scheduledInFlight = new Set<string>();
+
+function useScheduledItems(): ScheduledItem[] {
+  const [items, setItems] = useState<ScheduledItem[]>(() => loadScheduled());
+  useEffect(() => {
+    const reload = () => setItems(loadScheduled());
+    window.addEventListener('slack-scheduled-changed', reload);
+    window.addEventListener('storage', reload);
+    return () => {
+      window.removeEventListener('slack-scheduled-changed', reload);
+      window.removeEventListener('storage', reload);
+    };
+  }, []);
+  return items;
 }
 
 // ─── HTML → Markdown conversion ─────────────────────────────────────────────
@@ -90,7 +152,7 @@ function nodeToMd(node: Node): string {
 
 function htmlToMarkdown(html: string): string {
   const doc = new DOMParser().parseFromString(html, 'text/html');
-  let result = Array.from(doc.body.childNodes).map(nodeToMd).join('');
+  const result = Array.from(doc.body.childNodes).map(nodeToMd).join('');
   return result.replace(/^\n/, '').replace(/\n{3,}/g, '\n\n').trimEnd();
 }
 
@@ -105,6 +167,16 @@ function parseMentionsFromHTML(html: string): string[] {
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
+
+/** insertHTML に埋め込む文字列は必ずエスケープする */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 function getTextBeforeCaret(el: HTMLElement): string {
   const sel = window.getSelection();
@@ -125,6 +197,41 @@ function isInsideTag(tagName: string, editorEl: HTMLElement): boolean {
   return false;
 }
 
+function selectionInside(el: HTMLElement): boolean {
+  const sel = window.getSelection();
+  return !!sel && sel.rangeCount > 0 && el.contains(sel.getRangeAt(0).commonAncestorContainer);
+}
+
+function placeCaretAtEnd(el: HTMLElement) {
+  const r = document.createRange();
+  const sel = window.getSelection();
+  r.selectNodeContents(el);
+  r.collapse(false);
+  sel?.removeAllRanges();
+  sel?.addRange(r);
+}
+
+function formatScheduleLabel(ts: number): string {
+  return format(new Date(ts), 'M月d日 HH:mm');
+}
+
+function scheduleOptions(): { label: string; sub: string; at: number }[] {
+  const now = new Date();
+  const in30 = new Date(now.getTime() + 30 * 60 * 1000);
+  const tomorrow = new Date(now);
+  tomorrow.setDate(now.getDate() + 1);
+  tomorrow.setHours(9, 0, 0, 0);
+  const nextMon = new Date(now);
+  const add = ((8 - now.getDay()) % 7) || 7; // 次の月曜（今日が月曜なら翌週）
+  nextMon.setDate(now.getDate() + add);
+  nextMon.setHours(9, 0, 0, 0);
+  return [
+    { label: '今日', sub: `${format(in30, 'HH:mm')}（30分後）`, at: in30.getTime() },
+    { label: '明日', sub: '9:00', at: tomorrow.getTime() },
+    { label: '来週月曜', sub: '9:00', at: nextMon.getTime() },
+  ];
+}
+
 // ─── Toolbar button ─────────────────────────────────────────────────────────
 
 function ToolBtn({
@@ -133,39 +240,38 @@ function ToolBtn({
   onMouseDown,
   active,
   children,
+  round,
 }: {
   title: string;
   onClick?: () => void;
   onMouseDown?: (e: React.MouseEvent<HTMLButtonElement>) => void;
   active?: boolean;
   children: React.ReactNode;
+  round?: boolean;
 }) {
+  const restBg = active || round ? 'var(--sk-subtle)' : 'transparent';
   return (
     <button
+      type="button"
       title={title}
       aria-label={title}
       aria-pressed={active}
       onClick={onClick}
       onMouseDown={onMouseDown}
-      className="w-7 h-7 flex items-center justify-center rounded flex-shrink-0 press-subtle"
+      className="w-7 h-7 flex items-center justify-center flex-shrink-0"
       style={{
-        color: active ? '#1D1C1D' : '#616061',
-        background: active ? '#D4D4D4' : 'transparent',
-        fontWeight: active ? 700 : undefined,
-        boxShadow: active ? 'inset 0 1px 3px rgba(0,0,0,0.12)' : 'none',
-        transition: 'background 120ms ease, color 120ms ease, box-shadow 120ms ease, transform 80ms ease, opacity 80ms ease',
+        borderRadius: round ? '50%' : 4,
+        color: active ? 'var(--sk-text)' : 'var(--sk-text-2)',
+        background: restBg,
+        transition: 'background 120ms ease, color 120ms ease',
       }}
       onMouseEnter={(e) => {
-        if (!active) {
-          e.currentTarget.style.background = '#EBEBEB';
-          e.currentTarget.style.color = '#1D1C1D';
-        }
+        e.currentTarget.style.background = round ? 'rgba(29,28,29,0.12)' : 'var(--sk-subtle)';
+        e.currentTarget.style.color = 'var(--sk-text)';
       }}
       onMouseLeave={(e) => {
-        if (!active) {
-          e.currentTarget.style.background = 'transparent';
-          e.currentTarget.style.color = '#616061';
-        }
+        e.currentTarget.style.background = restBg;
+        e.currentTarget.style.color = active ? 'var(--sk-text)' : 'var(--sk-text-2)';
       }}
     >
       {children}
@@ -173,10 +279,58 @@ function ToolBtn({
   );
 }
 
+function Divider() {
+  return <div className="w-px h-5 mx-1 flex-shrink-0" style={{ background: 'var(--sk-border)' }} />;
+}
+
+/** Slack 風メニュー項目（ホバーで青背景・白文字） */
+function MenuItem({ children, onClick, icon }: { children: React.ReactNode; onClick: () => void; icon?: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onClick}
+      className="w-full flex items-center gap-2.5 px-4 text-left text-[15px]"
+      style={{ height: 32, color: 'var(--sk-text)' }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--sk-link)'; e.currentTarget.style.color = '#FFFFFF'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--sk-text)'; }}
+    >
+      {icon}
+      <span className="flex-1 truncate">{children}</span>
+    </button>
+  );
+}
+
+const POPOVER_STYLE: React.CSSProperties = {
+  background: '#FFFFFF',
+  border: '1px solid var(--sk-border)',
+  borderRadius: 8,
+  boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+};
+
+const SELECTED_BG = 'var(--sk-link)'; // Slack のキーボード選択色 #1264A3
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const CODE_STYLE = "font-family:'SFMono-Regular',Consolas,monospace;font-size:12.5px;background:rgba(29,28,29,0.06);border:1px solid rgba(29,28,29,0.13);border-radius:3px;padding:2px 5px;color:#E01E5A";
-const BLOCKQUOTE_STYLE = "border-left:3px solid #DDDDDD;margin:4px 0;padding:2px 10px;color:#616061;display:block";
+const CODE_STYLE = "font-family:'SFMono-Regular',Consolas,monospace;font-size:12px;background:rgba(29,28,29,0.04);border:1px solid rgba(29,28,29,0.13);border-radius:3px;padding:2px 3px;color:#E01E5A";
+const BLOCKQUOTE_STYLE = "border-left:4px solid #DDDDDD;margin:4px 0;padding:0 0 0 12px;display:block";
+const MENTION_STYLE = 'background:var(--sk-mention-bg);color:var(--sk-link);border-radius:3px;padding:0 2px;font-weight:400';
+
+type SuggestItem =
+  | { kind: 'special'; key: 'channel' | 'here'; desc: string }
+  | { kind: 'user'; user: User };
+
+const SPECIAL_MENTIONS: SuggestItem[] = [
+  { kind: 'special', key: 'channel', desc: 'このチャンネルの全員に通知します' },
+  { kind: 'special', key: 'here', desc: 'このチャンネルのアクティブなメンバーに通知します' },
+];
+
+const SLASH_COMMANDS = [
+  { name: 'me', description: 'アクションメッセージを送信', usage: '[テキスト]' },
+  { name: 'shrug', description: '¯\\_(ツ)_/¯ を送信', usage: '[メッセージ]' },
+  { name: 'tableflip', description: '(╯°□°）╯︵ ┻━┻ を送信', usage: '' },
+  { name: 'unflip', description: '┬─┬ ノ( ゜-゜ノ) を送信', usage: '' },
+];
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -189,6 +343,7 @@ export default function MessageInput() {
   const setEditingMessageId = useAppStore((s) => s.setEditingMessageId);
   const drafts = useAppStore((s) => s.drafts);
   const { schedule: scheduleDraftSave, clear: clearDraft } = useDraftAutoSave(activeChannelId);
+  const scheduledItems = useScheduledItems();
 
   const [sending, setSending] = useState(false);
   const [suggestOpen, setSuggestOpen] = useState(false);
@@ -202,21 +357,19 @@ export default function MessageInput() {
   const [isFocused, setIsFocused] = useState(false);
   const [showTopBar, setShowTopBar] = useState(true);
   const [charCount, setCharCount] = useState(0);
+  const [plusMenuOpen, setPlusMenuOpen] = useState(false);
+  const [scheduleMenuOpen, setScheduleMenuOpen] = useState(false);
+  const [customOpen, setCustomOpen] = useState(false);
+  const [customValue, setCustomValue] = useState('');
+  const [scheduledListOpen, setScheduledListOpen] = useState(false);
   const lastSentAtRef = useRef<number>(0);  // rate limiting
-
-  const SLASH_COMMANDS = [
-    { name: 'me', description: 'アクションメッセージを送信', usage: '/me [テキスト]' },
-    { name: 'shrug', description: '¯\\_(ツ)_/¯ を送信', usage: '/shrug' },
-    { name: 'tableflip', description: '(╯°□°）╯︵ ┻━┻ を送信', usage: '/tableflip' },
-    { name: 'unflip', description: '┬─┬ ノ( ゜-゜ノ) を送信', usage: '/unflip' },
-  ];
 
   const filteredSlashCmds = SLASH_COMMANDS.filter(
     (c) => c.name.startsWith(slashCmdQuery.toLowerCase())
   );
 
   // Active format states (updated on selectionchange)
-  const [fmt, setFmt] = useState({ bold: false, italic: false, underline: false, strike: false, ol: false, ul: false, blockquote: false });
+  const [fmt, setFmt] = useState({ bold: false, italic: false, underline: false, strike: false, ol: false, ul: false, blockquote: false, code: false });
 
   // Link popup
   const [linkPopupOpen, setLinkPopupOpen] = useState(false);
@@ -238,11 +391,15 @@ export default function MessageInput() {
     ? users.find((u) => u.uid !== user?.uid && channel?.members?.includes(u.uid))
     : null;
   const isSelfDM = isDM && !dmOtherUser;
-  const placeholder = isDM
+  const placeholderText = isDM
     ? isSelfDM
-      ? '自分へのメモを追加...'
-      : `${dmOtherUser!.displayName} にメッセージを送信`
-    : channel ? `#${channel.name} にメッセージを送信` : 'メッセージを送信';
+      ? '自分へのメモ…'
+      : `${dmOtherUser!.displayName} へのメッセージ`
+    : channel ? `${channel.isPrivate ? '🔒' : '#'}${channel.name} へのメッセージ` : 'メッセージを送信';
+
+  const channelScheduled = scheduledItems
+    .filter((s) => s.channelId === activeChannelId && (!s.uid || s.uid === user?.uid))
+    .sort((a, b) => a.sendAt - b.sendAt);
 
   // Reset / restore editor on channel change
   useEffect(() => {
@@ -251,6 +408,7 @@ export default function MessageInput() {
     setSuggestOpen(false);
     setAttachedFiles([]);
     setLinkPopupOpen(false);
+    setScheduledListOpen(false);
 
     const draft = activeChannelId ? drafts[activeChannelId] : undefined;
     if (draft && draft.html) {
@@ -262,13 +420,7 @@ export default function MessageInput() {
         el.appendChild(document.importNode(node, true));
       });
       setIsEmpty(false);
-      // Move caret to end
-      const r = document.createRange();
-      const sel = window.getSelection();
-      r.selectNodeContents(el);
-      r.collapse(false);
-      sel?.removeAllRanges();
-      sel?.addRange(r);
+      placeCaretAtEnd(el);
     } else {
       el.textContent = '';
       setIsEmpty(true);
@@ -281,13 +433,7 @@ export default function MessageInput() {
   useEffect(() => {
     const update = () => {
       const el = editableRef.current;
-      if (!el) return;
-      // Only update when editor is focused or selection is inside editor
-      const sel = window.getSelection();
-      if (!sel || sel.rangeCount === 0) return;
-      const node = sel.getRangeAt(0).commonAncestorContainer;
-      if (!el.contains(node)) return;
-
+      if (!el || !selectionInside(el)) return;
       setFmt({
         bold: document.queryCommandState('bold'),
         italic: document.queryCommandState('italic'),
@@ -296,6 +442,7 @@ export default function MessageInput() {
         ol: isInsideTag('ol', el),
         ul: isInsideTag('ul', el),
         blockquote: isInsideTag('blockquote', el),
+        code: isInsideTag('code', el),
       });
     };
     document.addEventListener('selectionchange', update);
@@ -309,23 +456,61 @@ export default function MessageInput() {
     }
   }, [linkPopupOpen]);
 
-  const filteredUsers = users.filter(
-    (u) => u.uid !== user?.uid && u.displayName.toLowerCase().includes(suggestQuery.toLowerCase())
-  );
+  // ── Scheduled sender: 15 秒ごとに期限が来た予約メッセージを送信 ─────────────
+  useEffect(() => {
+    if (!user) return;
+    const tick = async () => {
+      const now = Date.now();
+      const due = loadScheduled().filter(
+        (s) => s.sendAt <= now && (!s.uid || s.uid === user.uid) && !scheduledInFlight.has(s.id)
+      );
+      for (const item of due) {
+        scheduledInFlight.add(item.id);
+        // 先にストレージから取り除いて「確保」する（他タブとの二重送信も抑止）
+        saveScheduled(loadScheduled().filter((s) => s.id !== item.id));
+        try {
+          await sendMessage(item.channelId, item.text, user, item.mentions ?? [], item.dmRecipientUid);
+          toast.success('送信予定のメッセージを送信しました');
+        } catch (err) {
+          console.error('Scheduled send error:', err);
+          // 失敗時は戻して次回リトライ
+          const cur = loadScheduled();
+          if (!cur.some((s) => s.id === item.id)) saveScheduled([...cur, item]);
+        } finally {
+          scheduledInFlight.delete(item.id);
+        }
+      }
+    };
+    tick();
+    const id = setInterval(tick, 15000);
+    return () => clearInterval(id);
+  }, [user]);
 
-  const exec = (command: string, value?: string) => {
+  const q = suggestQuery.toLowerCase();
+  const suggestItems: SuggestItem[] = [
+    ...(!isDM ? SPECIAL_MENTIONS.filter((s) => s.kind === 'special' && s.key.startsWith(q)) : []),
+    ...users
+      .filter((u) => u.uid !== user?.uid && u.displayName.toLowerCase().includes(q))
+      .map((u): SuggestItem => ({ kind: 'user', user: u })),
+  ];
+
+  const runCmd = (command: string, value?: string) => {
     editableRef.current?.focus();
     document.execCommand(command, false, value);
   };
 
   // ── Link ──────────────────────────────────────────────────────────────────
 
-  const openLinkPopup = (e: React.MouseEvent) => {
-    e.preventDefault();
+  const openLinkPopup = (e?: { preventDefault: () => void }) => {
+    e?.preventDefault();
+    const el = editableRef.current;
     const sel = window.getSelection();
-    if (sel && sel.rangeCount > 0) {
+    if (el && sel && selectionInside(el)) {
       savedRangeRef.current = sel.getRangeAt(0).cloneRange();
       setLinkText(sel.toString());
+    } else {
+      savedRangeRef.current = null;
+      setLinkText('');
     }
     setLinkUrl('');
     setLinkPopupOpen(true);
@@ -336,7 +521,6 @@ export default function MessageInput() {
     const rawUrl = linkUrl.trim();
     // http/https のみ許可（javascript: / data: などを拒否）
     const withProtocol = /^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`;
-    // URL文字として無効な文字を除去（XSS対策）
     let safeUrl: string;
     try {
       safeUrl = new URL(withProtocol).toString();
@@ -346,31 +530,32 @@ export default function MessageInput() {
     }
     if (!/^https?:\/\//i.test(safeUrl)) { setLinkPopupOpen(false); return; }
 
+    const el = editableRef.current;
     const sel = window.getSelection();
-    editableRef.current?.focus();
+    el?.focus();
     if (savedRangeRef.current) {
       sel?.removeAllRanges();
       sel?.addRange(savedRangeRef.current);
+    } else if (el) {
+      placeCaretAtEnd(el);
     }
-    if (linkText.trim() && savedRangeRef.current?.collapsed) {
-      // テキスト指定あり・選択範囲なし → DOM APIで安全にリンク挿入
+    if (!savedRangeRef.current || savedRangeRef.current.collapsed) {
+      // 選択範囲なし → DOM API で安全にリンク挿入（textContent でエスケープ）
       const a = document.createElement('a');
       a.href = safeUrl;
-      a.textContent = linkText.trim();
+      a.textContent = linkText.trim() || safeUrl;
       a.style.color = '#1264A3';
-      a.style.textDecoration = 'underline';
       a.setAttribute('target', '_blank');
       a.setAttribute('rel', 'noopener noreferrer');
-      document.execCommand('insertHTML', false, a.outerHTML + '\u00A0');
+      document.execCommand('insertHTML', false, a.outerHTML + ' ');
     } else {
       // 選択範囲をリンクで囲む
       document.execCommand('createLink', false, safeUrl);
-      const links = editableRef.current?.querySelectorAll(`a[href="${safeUrl}"]`) ?? [];
-      links.forEach((a) => {
-        (a as HTMLElement).style.color = '#1264A3';
-        (a as HTMLElement).style.textDecoration = 'underline';
-        (a as HTMLElement).setAttribute('target', '_blank');
-        (a as HTMLElement).setAttribute('rel', 'noopener noreferrer');
+      el?.querySelectorAll('a').forEach((a) => {
+        if (a.getAttribute('href') !== safeUrl) return;
+        a.style.color = '#1264A3';
+        a.setAttribute('target', '_blank');
+        a.setAttribute('rel', 'noopener noreferrer');
       });
     }
     setLinkPopupOpen(false);
@@ -386,7 +571,6 @@ export default function MessageInput() {
     const el = editableRef.current;
     if (!el) return;
 
-    // If cursor/selection is inside a <code> element → unwrap it
     if (isInsideTag('code', el)) {
       const sel = window.getSelection();
       if (sel && sel.rangeCount > 0) {
@@ -405,12 +589,11 @@ export default function MessageInput() {
       }
     }
 
-    // Wrap selection (or insert placeholder)
     el.focus();
-    const sel = window.getSelection();
-    const selected = sel?.toString() ?? '';
+    const selected = window.getSelection()?.toString() ?? '';
     document.execCommand('insertHTML', false,
-      `<code style="${CODE_STYLE}">${selected || 'コード'}</code>`);
+      `<code style="${CODE_STYLE}">${escapeHtml(selected || 'コード')}</code>`);
+    setIsEmpty(false);
   };
 
   // ── Blockquote ────────────────────────────────────────────────────────────
@@ -421,37 +604,35 @@ export default function MessageInput() {
     if (!el) return;
     el.focus();
 
-    // Toggle: if already inside blockquote, unwrap
     if (isInsideTag('blockquote', el)) {
       document.execCommand('outdent');
-      // execCommand outdent may not remove blockquote; force with formatBlock
       document.execCommand('formatBlock', false, 'div');
       return;
     }
 
-    const sel = window.getSelection();
-    const selected = sel?.toString() ?? '';
-    if (selected) {
-      document.execCommand('insertHTML', false,
-        `<blockquote style="${BLOCKQUOTE_STYLE}">${selected}</blockquote>`);
-    } else {
-      document.execCommand('insertHTML', false,
-        `<blockquote style="${BLOCKQUOTE_STYLE}">引用テキスト</blockquote>`);
-    }
+    const selected = window.getSelection()?.toString() ?? '';
+    document.execCommand('insertHTML', false,
+      `<blockquote style="${BLOCKQUOTE_STYLE}">${escapeHtml(selected || '引用テキスト')}</blockquote>`);
+    setIsEmpty(false);
   };
 
   // ── Code block ────────────────────────────────────────────────────────────
 
-  const handleCodeBlock = (e: React.MouseEvent) => {
-    e.preventDefault();
+  const insertCodeBlock = () => {
     const el = editableRef.current;
     if (!el) return;
     el.focus();
-    const sel = window.getSelection();
-    const selected = sel?.toString() ?? '';
-    const inner = selected || 'コードをここに入力';
+    if (!selectionInside(el)) placeCaretAtEnd(el);
+    const selected = window.getSelection()?.toString() ?? '';
+    const inner = escapeHtml(selected || 'コードをここに入力');
     document.execCommand('insertHTML', false,
-      `<pre style="font-family:'SFMono-Regular',Consolas,monospace;font-size:12.5px;line-height:1.55;background:rgba(29,28,29,0.04);border:1px solid rgba(29,28,29,0.13);border-radius:4px;padding:8px 12px;margin:4px 0;overflow-x:auto;white-space:pre"><code contenteditable="true" style="font-family:inherit;background:none;border:none;padding:0;color:#1D1C1D">${inner}</code></pre><br>`);
+      `<pre style="font-family:'SFMono-Regular',Consolas,monospace;font-size:12px;line-height:1.5;background:rgba(29,28,29,0.04);border:1px solid rgba(29,28,29,0.13);border-radius:4px;padding:8px;margin:4px 0;overflow-x:auto;white-space:pre"><code style="font-family:inherit;background:none;border:none;padding:0;color:#1D1C1D">${inner}</code></pre><br>`);
+    setIsEmpty(false);
+  };
+
+  const handleCodeBlock = (e: React.MouseEvent) => {
+    e.preventDefault();
+    insertCodeBlock();
   };
 
   // ── File attachment ───────────────────────────────────────────────────────
@@ -461,7 +642,6 @@ export default function MessageInput() {
     if (files.length === 0) return;
     setAttachedFiles((prev) => [...prev, ...files]);
     setIsEmpty(false);
-    // Reset input so same file can be re-selected
     e.target.value = '';
   };
 
@@ -486,18 +666,12 @@ export default function MessageInput() {
     setIsEmpty(len === 0 && attachedFiles.length === 0);
     setCharCount(raw.length);
 
-    // タイピング通知
-    if (len > 0) {
-      startTyping();
-    } else {
-      stopTyping();
-    }
+    if (len > 0) startTyping(); else stopTyping();
 
-    // 下書き自動保存 (debounced)
     scheduleDraftSave(el.innerHTML, raw);
 
     const textBefore = getTextBeforeCaret(el);
-    const atMatch = textBefore.match(/@(\w*)$/);
+    const atMatch = textBefore.match(/(?:^|\s)@([^\s@]*)$/);
     if (atMatch) {
       setSuggestQuery(atMatch[1]);
       setSuggestOpen(true);
@@ -507,37 +681,63 @@ export default function MessageInput() {
       setSuggestOpen(false);
     }
 
-    // Slash command suggestions (only when input starts with /)
+    // Slash command suggestions (only while the first word is "/xxx")
     const rawText = el.innerText?.trim() ?? '';
-    const slashMatch = rawText.match(/^\/(\w*)$/);
-    if (slashMatch && !suggestOpen) {
+    const slashMatch = rawText.match(/^\/(\w*)/);
+    if (slashMatch && !atMatch && !/^\/\w*\s/.test(rawText)) {
       setSlashCmdQuery(slashMatch[1]);
       setSlashCmdOpen(true);
       setSlashCmdIndex(0);
-    } else if (!rawText.startsWith('/')) {
+    } else {
       setSlashCmdOpen(false);
     }
   };
 
-  const insertMention = useCallback((u: User) => {
+  /** 先頭の "/xxx" をコマンド名に置き換える（それ以外の本文は保持） */
+  const applySlashCommand = (name: string) => {
+    const el = editableRef.current;
+    if (!el) return;
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let first = walker.nextNode() as Text | null;
+    while (first && !(first.textContent ?? '').trim()) first = walker.nextNode() as Text | null;
+    if (first && /^\s*\/\w*/.test(first.textContent ?? '')) {
+      first.textContent = (first.textContent ?? '').replace(/^\s*\/\w*\s?/, `/${name} `);
+    } else {
+      el.textContent = `/${name} `;
+    }
+    setSlashCmdOpen(false);
+    setIsEmpty(false);
+    el.focus();
+    placeCaretAtEnd(el);
+  };
+
+  /** キャレット直前の "@xxx" を選択状態にする */
+  const selectAtToken = (): boolean => {
     const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0) return;
+    if (!sel || sel.rangeCount === 0) return false;
     const range = sel.getRangeAt(0);
     const textNode = range.startContainer;
+    if (textNode.nodeType !== Node.TEXT_NODE) return false;
+    const text = textNode.textContent ?? '';
+    const offset = range.startOffset;
+    const atIdx = text.slice(0, offset).lastIndexOf('@');
+    if (atIdx < 0) return false;
+    const newRange = document.createRange();
+    newRange.setStart(textNode, atIdx);
+    newRange.setEnd(textNode, offset);
+    sel.removeAllRanges();
+    sel.addRange(newRange);
+    return true;
+  };
 
-    if (textNode.nodeType === Node.TEXT_NODE) {
-      const text = textNode.textContent ?? '';
-      const offset = range.startOffset;
-      const beforeCursor = text.slice(0, offset);
-      const atIdx = beforeCursor.lastIndexOf('@');
-      if (atIdx >= 0) {
-        const newRange = document.createRange();
-        newRange.setStart(textNode, atIdx);
-        newRange.setEnd(textNode, offset);
-        sel.removeAllRanges();
-        sel.addRange(newRange);
+  const insertSuggestion = useCallback((item: SuggestItem) => {
+    if (selectAtToken()) {
+      if (item.kind === 'special') {
+        document.execCommand('insertText', false, `@${item.key} `);
+      } else {
+        const u = item.user;
         document.execCommand('insertHTML', false,
-          `<span data-uid="${u.uid}" data-mention="true" contenteditable="false" style="color:#1264A3;background:rgba(18,100,163,0.1);border-radius:3px;padding:0 3px;font-weight:600">@${u.displayName}</span>\u00A0`
+          `<span data-uid="${escapeHtml(u.uid)}" data-mention="true" contenteditable="false" style="${MENTION_STYLE}">@${escapeHtml(u.displayName)}</span> `
         );
       }
     }
@@ -547,57 +747,40 @@ export default function MessageInput() {
   }, []);
 
   const insertEmoji = (emoji: string) => {
-    editableRef.current?.focus();
+    const el = editableRef.current;
+    el?.focus();
+    if (el && !selectionInside(el)) placeCaretAtEnd(el);
     document.execCommand('insertText', false, emoji);
     setEmojiPickerOpen(false);
     setIsEmpty(false);
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    // Slash command suggestions navigation
     if (slashCmdOpen && filteredSlashCmds.length > 0) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setSlashCmdIndex((i) => Math.min(i + 1, filteredSlashCmds.length - 1)); return; }
       if (e.key === 'ArrowUp')   { e.preventDefault(); setSlashCmdIndex((i) => Math.max(i - 1, 0)); return; }
       if (e.key === 'Enter' || e.key === 'Tab') {
         e.preventDefault();
         const cmd = filteredSlashCmds[slashCmdIndex];
-        if (cmd && editableRef.current) {
-          // Use textContent for safe insertion of slash command text
-          editableRef.current.textContent = `/${cmd.name}`;
-          setSlashCmdOpen(false);
-          setIsEmpty(false);
-          // Move caret to end
-          const sel = window.getSelection();
-          const range = document.createRange();
-          if (editableRef.current.firstChild) {
-            range.setStart(editableRef.current.firstChild, editableRef.current.textContent.length);
-          } else {
-            range.selectNodeContents(editableRef.current);
-          }
-          range.collapse(false);
-          sel?.removeAllRanges();
-          sel?.addRange(range);
-        }
+        if (cmd) applySlashCommand(cmd.name);
         return;
       }
       if (e.key === 'Escape') { setSlashCmdOpen(false); return; }
     }
 
-    // Mention suggestions navigation
-    if (suggestOpen && filteredUsers.length > 0) {
-      if (e.key === 'ArrowDown') { e.preventDefault(); setSuggestIndex((i) => Math.min(i + 1, filteredUsers.length - 1)); return; }
+    if (suggestOpen && suggestItems.length > 0) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setSuggestIndex((i) => Math.min(i + 1, suggestItems.length - 1)); return; }
       if (e.key === 'ArrowUp')   { e.preventDefault(); setSuggestIndex((i) => Math.max(i - 1, 0)); return; }
-      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); const s = filteredUsers[suggestIndex]; if (s) insertMention(s); return; }
+      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); const s = suggestItems[suggestIndex]; if (s) insertSuggestion(s); return; }
       if (e.key === 'Escape') { setSuggestOpen(false); return; }
     }
 
-    // Keyboard shortcuts for formatting
     if (e.ctrlKey || e.metaKey) {
       switch (e.key.toLowerCase()) {
-        case 'b': e.preventDefault(); exec('bold'); return;
-        case 'i': e.preventDefault(); exec('italic'); return;
-        case 'u': e.preventDefault(); exec('underline'); return;
-        case 'k': e.preventDefault(); openLinkPopup(e as unknown as React.MouseEvent); return;
+        case 'b': e.preventDefault(); runCmd('bold'); return;
+        case 'i': e.preventDefault(); runCmd('italic'); return;
+        case 'u': e.preventDefault(); runCmd('underline'); return;
+        case 'k': e.preventDefault(); openLinkPopup(e); return;
       }
     }
 
@@ -612,18 +795,15 @@ export default function MessageInput() {
       }
     }
 
-    // Enter / Shift+Enter
     if (e.key === 'Enter') {
       const el = editableRef.current;
       const insideList = el ? (isInsideTag('li', el) || isInsideTag('ul', el) || isInsideTag('ol', el)) : false;
 
       if (insideList) {
         if (e.shiftKey) {
-          // リスト内 Shift+Enter → 送信
           e.preventDefault();
           handleSend();
         }
-        // リスト内 Enter → ブラウザのデフォルト（新しいリスト項目を追加）
         return;
       }
 
@@ -638,50 +818,64 @@ export default function MessageInput() {
     document.execCommand('insertText', false, text);
   };
 
+  /** エディタ内容を送信用 markdown に変換（スラッシュコマンド・添付名を反映） */
+  const buildPayload = (): { html: string; markdown: string; mentions: string[] } | null => {
+    const el = editableRef.current;
+    if (!el || !user) return null;
+    const html = el.innerHTML;
+    let markdown = htmlToMarkdown(html);
+
+    const trimmed = markdown.trim();
+    const lower = trimmed.toLowerCase();
+    if (lower.startsWith('/me ')) {
+      const action = trimmed.slice(4).trim();
+      markdown = `_${user.displayName} ${action}_`;
+    } else if (lower === '/shrug' || lower.startsWith('/shrug ')) {
+      const rest = trimmed.slice(6).trim();
+      markdown = rest ? `${rest} ¯\\_(ツ)_/¯` : '¯\\_(ツ)_/¯';
+    } else if (lower === '/tableflip') {
+      markdown = '(╯°□°）╯︵ ┻━┻';
+    } else if (lower === '/unflip') {
+      markdown = '┬─┬ ノ( ゜-゜ノ)';
+    }
+
+    if (attachedFiles.length > 0) {
+      const fileList = attachedFiles.map((f) => `📎 ${f.name.slice(0, 100)}`).join('\n');
+      markdown = markdown ? `${markdown}\n${fileList}` : fileList;
+    }
+    if (!markdown.trim()) return null;
+    return { html, markdown, mentions: parseMentionsFromHTML(html) };
+  };
+
+  const resetEditor = () => {
+    const el = editableRef.current;
+    stopTyping();
+    clearDraft();
+    if (el) el.textContent = '';
+    setIsEmpty(true);
+    setCharCount(0);
+    setAttachedFiles([]);
+    setSuggestOpen(false);
+    setSlashCmdOpen(false);
+  };
+
   const handleSend = async () => {
     const el = editableRef.current;
     if (!el || !activeChannelId || !user || sending) return;
     if (isEmpty && attachedFiles.length === 0) return;
 
-    // Rate limiting: 1秒に1回まで
     const now = Date.now();
     if (now - lastSentAtRef.current < 1000) {
       toast.info('少し待ってから送信してください');
       return;
     }
 
-    const html = el.innerHTML;
-    let markdown = htmlToMarkdown(html);
-
-    // Slash commands
-    if (markdown.startsWith('/me ') && user) {
-      const action = markdown.slice(4).trim();
-      markdown = `_${user.displayName} ${action}_`;
-    } else if (markdown.trim().toLowerCase() === '/shrug') {
-      markdown = '¯\\_(ツ)_/¯';
-    } else if (markdown.trim().toLowerCase() === '/tableflip') {
-      markdown = '(╯°□°）╯︵ ┻━┻';
-    } else if (markdown.trim().toLowerCase() === '/unflip') {
-      markdown = '┬─┬ ノ( ゜-゜ノ)';
-    }
-
-    // ファイル名をテキストとして追記
-    if (attachedFiles.length > 0) {
-      const fileList = attachedFiles.map((f) => `📎 ${f.name.slice(0, 100)}`).join('\n');
-      markdown = markdown ? `${markdown}\n${fileList}` : fileList;
-    }
-
-    if (!markdown.trim()) return;
-    const mentions = parseMentionsFromHTML(html);
+    const payload = buildPayload();
+    if (!payload) return;
+    const { html, markdown, mentions } = payload;
     setSending(true);
     lastSentAtRef.current = now;
-    stopTyping(); // タイピング停止
-    clearDraft(); // 下書きを削除
-    el.textContent = '';
-    setIsEmpty(true);
-    setCharCount(0);
-    setAttachedFiles([]);
-    setSuggestOpen(false);
+    resetEditor();
     try {
       await sendMessage(activeChannelId, markdown, user, mentions, dmOtherUser?.uid);
     } catch (err) {
@@ -699,13 +893,86 @@ export default function MessageInput() {
     }
   };
 
+  const scheduleSend = (sendAt: number) => {
+    setScheduleMenuOpen(false);
+    setCustomOpen(false);
+    if (!activeChannelId || !user) return;
+    if (!Number.isFinite(sendAt) || sendAt <= Date.now()) {
+      toast.error('未来の日時を指定してください');
+      return;
+    }
+    const payload = buildPayload();
+    if (!payload) return;
+    const item: ScheduledItem = {
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      channelId: activeChannelId,
+      text: payload.markdown.slice(0, 4000),
+      mentions: payload.mentions,
+      sendAt,
+      dmRecipientUid: dmOtherUser?.uid,
+      uid: user.uid,
+    };
+    saveScheduled([...loadScheduled(), item]);
+    resetEditor();
+    toast.success(`${formatScheduleLabel(sendAt)} に送信予定です（アプリを開いている間に送信されます）`);
+  };
+
+  const cancelScheduled = (id: string) => {
+    saveScheduled(loadScheduled().filter((s) => s.id !== id));
+    toast.info('送信予定のメッセージをキャンセルしました');
+  };
+
+  /** スラッシュボタン: 先頭に "/" を入れてコマンドメニューを開く */
+  const openSlashMenu = () => {
+    const el = editableRef.current;
+    if (!el) return;
+    el.focus();
+    const slash = document.createTextNode('/');
+    if (isEmpty) el.textContent = '';
+    el.insertBefore(slash, el.firstChild);
+    const r = document.createRange();
+    r.setStart(slash, 1);
+    r.collapse(true);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(r);
+    setIsEmpty(false);
+    setSlashCmdQuery('');
+    setSlashCmdIndex(0);
+    setSlashCmdOpen(true);
+    setSuggestOpen(false);
+  };
+
+  const insertAtSign = () => {
+    const el = editableRef.current;
+    if (!el) return;
+    el.focus();
+    if (!selectionInside(el)) placeCaretAtEnd(el);
+    const before = getTextBeforeCaret(el);
+    document.execCommand('insertText', false, before && !/\s$/.test(before) ? ' @' : '@');
+    setSuggestQuery('');
+    setSuggestIndex(0);
+    setSuggestOpen(true);
+    setIsEmpty(false);
+  };
+
   if (!activeChannelId) return null;
 
   const canSend = (!isEmpty || attachedFiles.length > 0) && !sending;
+  const toolbarDim = !isFocused && isEmpty && attachedFiles.length === 0;
+  const anyMenuOpen = plusMenuOpen || scheduleMenuOpen;
+  const closeMenus = () => { setPlusMenuOpen(false); setScheduleMenuOpen(false); setCustomOpen(false); };
+
+  const defaultCustom = () => {
+    const d = new Date(Date.now() + 60 * 60 * 1000);
+    d.setSeconds(0, 0);
+    return format(d, "yyyy-MM-dd'T'HH:mm");
+  };
+
+  const iconCls = 'w-[18px] h-[18px]';
 
   return (
-    <div className="px-4 pb-4 pt-2 flex-shrink-0">
-      {/* Hidden file input */}
+    <div className="px-5 pb-5 flex-shrink-0 relative">
       <input
         ref={fileInputRef}
         type="file"
@@ -714,75 +981,131 @@ export default function MessageInput() {
         onChange={handleFileSelect}
       />
 
+      {/* ── Scheduled messages bar ── */}
+      {channelScheduled.length > 0 && (
+        <div className="relative mb-1">
+          <div
+            className="flex items-center gap-2 px-3 text-[13px]"
+            style={{ height: 32, color: 'var(--sk-text-2)', background: 'var(--sk-hover)', border: '1px solid var(--sk-border)', borderRadius: 8 }}
+          >
+            <CalendarClockIcon className="w-4 h-4 flex-shrink-0" />
+            <span className="flex-1 truncate">
+              このチャンネルに送信予定のメッセージが {channelScheduled.length} 件あります
+            </span>
+            <button
+              type="button"
+              onClick={() => setScheduledListOpen((v) => !v)}
+              className="font-bold hover:underline flex-shrink-0"
+              style={{ color: 'var(--sk-link)' }}
+            >
+              {scheduledListOpen ? '閉じる' : '表示'}
+            </button>
+          </div>
+          {scheduledListOpen && (
+            <>
+              <div className="fixed inset-0 z-20" onClick={() => setScheduledListOpen(false)} />
+              <div className="absolute bottom-full left-0 right-0 mb-1 z-30 py-2 max-h-72 overflow-y-auto" style={POPOVER_STYLE}>
+                <div className="px-4 pb-1 text-[13px] font-bold" style={{ color: 'var(--sk-text-2)' }}>送信予定のメッセージ</div>
+                {channelScheduled.map((s) => (
+                  <div key={s.id} className="flex items-center gap-3 px-4 py-1.5" style={{ minHeight: 36 }}>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[12px]" style={{ color: 'var(--sk-text-2)' }}>{formatScheduleLabel(s.sendAt)} に送信</div>
+                      <div className="text-[14px] truncate" style={{ color: 'var(--sk-text)' }}>{s.text}</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => cancelScheduled(s.id)}
+                      className="text-[13px] font-bold px-2 h-7 flex-shrink-0"
+                      style={{ border: '1px solid var(--sk-border-strong)', borderRadius: 4, color: 'var(--sk-text)' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--sk-hover)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                    >
+                      キャンセル
+                    </button>
+                  </div>
+                ))}
+                <div className="px-4 pt-1 text-[12px]" style={{ color: 'var(--sk-text-3)' }}>
+                  ※ 予約送信はこのブラウザでアプリを開いている間にのみ実行されます
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       <div
-        className="relative transition-all"
+        className="relative"
         style={{
-          border: `1px solid ${!isEmpty || attachedFiles.length > 0 ? '#1D1C1D' : isFocused ? '#1D9BD1' : '#DDDDDD'}`,
-          borderRadius: '8px',
-          boxShadow: !isEmpty || attachedFiles.length > 0 ? '0 0 0 1px #1D1C1D' : isFocused ? '0 0 0 1px #1D9BD1' : 'none',
+          background: '#FFFFFF',
+          border: `1px solid ${isFocused ? 'rgba(29,28,29,0.5)' : 'var(--sk-border-strong)'}`,
+          borderRadius: 8,
+          boxShadow: isFocused ? '0 0 0 1px rgba(29,28,29,0.5)' : 'none',
           transition: 'border-color 150ms, box-shadow 150ms',
         }}
       >
         {/* Slash command suggest */}
         {slashCmdOpen && filteredSlashCmds.length > 0 && (
-          <div className="absolute bottom-full left-0 right-0 mb-1 z-20"
-            style={{ background: '#FFFFFF', border: '1px solid #DDDDDD', borderRadius: '6px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}>
-            <div className="px-3 py-1.5">
-              <span className="text-[11px] font-bold text-[#616061] uppercase tracking-wide">スラッシュコマンド</span>
-            </div>
-            {filteredSlashCmds.map((cmd, i) => (
-              <button key={cmd.name}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  if (editableRef.current) {
-                    editableRef.current.textContent = `/${cmd.name}`;
-                    setSlashCmdOpen(false);
-                    setIsEmpty(false);
-                    editableRef.current.focus();
-                  }
-                }}
-                className="w-full flex items-center gap-2.5 px-3 py-2 text-sm"
-                style={{ background: i === slashCmdIndex ? 'rgba(29,28,29,0.04)' : 'transparent' }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(29,28,29,0.04)'; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = i === slashCmdIndex ? 'rgba(29,28,29,0.04)' : 'transparent'; }}
-              >
-                <div className="w-7 h-7 flex items-center justify-center text-[#1264A3] font-bold text-[15px] rounded" style={{ background: 'rgba(18,100,163,0.1)', flexShrink: 0 }}>
-                  /
-                </div>
-                <div className="flex-1 min-w-0 text-left">
-                  <div className="font-semibold text-[14px] text-[#1D1C1D]">/{cmd.name}</div>
-                  <div className="text-[12px] text-[#616061]">{cmd.description}</div>
-                </div>
-                <div className="text-[12px] text-[#9E9EA6] flex-shrink-0">{cmd.usage}</div>
-              </button>
-            ))}
+          <div className="absolute bottom-full left-0 right-0 mb-1 z-20 py-2" style={POPOVER_STYLE}>
+            <div className="px-4 pb-1 text-[13px] font-bold" style={{ color: 'var(--sk-text-2)' }}>スラッシュコマンド</div>
+            {filteredSlashCmds.map((cmd, i) => {
+              const sel = i === slashCmdIndex;
+              return (
+                <button key={cmd.name}
+                  type="button"
+                  onMouseDown={(e) => { e.preventDefault(); applySlashCommand(cmd.name); }}
+                  onMouseEnter={() => setSlashCmdIndex(i)}
+                  className="w-full flex items-center gap-2 px-4 text-left"
+                  style={{ height: 36, background: sel ? SELECTED_BG : 'transparent', color: sel ? '#FFFFFF' : 'var(--sk-text)' }}
+                >
+                  <span className="font-bold text-[15px]">/{cmd.name}</span>
+                  {cmd.usage && <span className="text-[13px]" style={{ color: sel ? 'rgba(255,255,255,0.8)' : 'var(--sk-text-3)' }}>{cmd.usage}</span>}
+                  <span className="ml-auto text-[13px] truncate" style={{ color: sel ? 'rgba(255,255,255,0.9)' : 'var(--sk-text-2)' }}>{cmd.description}</span>
+                </button>
+              );
+            })}
           </div>
         )}
 
         {/* Mention suggest */}
-        {suggestOpen && filteredUsers.length > 0 && (
-          <div className="absolute bottom-full left-0 right-0 mb-1 max-h-48 overflow-y-auto z-20"
-            style={{ background: '#FFFFFF', border: '1px solid #DDDDDD', borderRadius: '6px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}>
-            <div className="px-3 py-1.5">
-              <span className="text-[11px] font-bold text-[#616061] uppercase tracking-wide">チャンネルメンバー</span>
-            </div>
-            {filteredUsers.map((u, i) => (
-              <button key={u.uid}
-                onMouseDown={(e) => { e.preventDefault(); insertMention(u); }}
-                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-sm"
-                style={{ background: i === suggestIndex ? 'rgba(29,28,29,0.04)' : 'transparent' }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(29,28,29,0.04)'; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = i === suggestIndex ? 'rgba(29,28,29,0.04)' : 'transparent'; }}>
-                <div className="relative flex-shrink-0">
-                  {u.photoURL
-                    ? <img src={u.photoURL} alt={u.displayName} className="w-7 h-7 object-cover" style={{ borderRadius: '4px' }} />
-                    : <div className="w-7 h-7 flex items-center justify-center text-white text-xs font-bold" style={{ borderRadius: '4px', background: '#1164A3' }}>{u.displayName[0].toUpperCase()}</div>}
-                  {u.online && <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white bg-[#007A5A]" />}
-                </div>
-                <span className="font-semibold text-[14px] text-[#1D1C1D]">{u.displayName}</span>
-                {u.online && <span className="text-[12px] text-[#616061] ml-auto">アクティブ</span>}
-              </button>
-            ))}
+        {suggestOpen && suggestItems.length > 0 && (
+          <div className="absolute bottom-full left-0 right-0 mb-1 max-h-64 overflow-y-auto z-20 py-2" style={POPOVER_STYLE}>
+            <div className="px-4 pb-1 text-[13px] font-bold" style={{ color: 'var(--sk-text-2)' }}>メンバー</div>
+            {suggestItems.map((item, i) => {
+              const sel = i === suggestIndex;
+              const key = item.kind === 'special' ? `__${item.key}` : item.user.uid;
+              return (
+                <button key={key}
+                  type="button"
+                  onMouseDown={(e) => { e.preventDefault(); insertSuggestion(item); }}
+                  onMouseEnter={() => setSuggestIndex(i)}
+                  className="w-full flex items-center gap-2 px-4 text-left"
+                  style={{ height: 36, background: sel ? SELECTED_BG : 'transparent', color: sel ? '#FFFFFF' : 'var(--sk-text)' }}
+                >
+                  {item.kind === 'special' ? (
+                    <>
+                      <span className="w-6 h-6 flex items-center justify-center flex-shrink-0" style={{ borderRadius: 6, background: sel ? 'rgba(255,255,255,0.2)' : 'var(--sk-subtle)' }}>
+                        <AtIcon className="w-4 h-4" />
+                      </span>
+                      <span className="font-bold text-[15px]">@{item.key}</span>
+                      <span className="text-[13px] truncate" style={{ color: sel ? 'rgba(255,255,255,0.85)' : 'var(--sk-text-2)' }}>{item.desc}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Avatar name={item.user.displayName} photoURL={item.user.photoURL} size={24} radius={6} />
+                      <span className="font-bold text-[15px] truncate">{item.user.displayName}</span>
+                      <span
+                        className="w-2 h-2 rounded-full flex-shrink-0"
+                        style={item.user.online
+                          ? { background: 'var(--sk-online)' }
+                          : { border: `1px solid ${sel ? '#FFFFFF' : 'var(--sk-text-3)'}` }}
+                        title={item.user.online ? 'アクティブ' : '離席中'}
+                      />
+                      {item.user.status?.emoji && <span className="text-[13px]">{item.user.status.emoji}</span>}
+                    </>
+                  )}
+                </button>
+              );
+            })}
           </div>
         )}
 
@@ -804,57 +1127,55 @@ export default function MessageInput() {
           <>
             <div className="fixed inset-0 z-30" onClick={() => setLinkPopupOpen(false)} />
             <div
-              className="absolute bottom-full left-2 mb-2 z-40 p-3 flex flex-col gap-2"
-              style={{
-                background: '#FFFFFF',
-                border: '1px solid #DDDDDD',
-                borderRadius: '8px',
-                boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
-                minWidth: '280px',
-              }}
+              className="absolute bottom-full left-2 mb-2 z-40 p-4 flex flex-col gap-2"
+              style={{ ...POPOVER_STYLE, minWidth: 320 }}
               onClick={(e) => e.stopPropagation()}
             >
-              <p className="text-[12px] font-bold text-[#616061] uppercase tracking-wide">リンクを挿入</p>
-              {!linkText && (
-                <input
-                  type="text"
-                  placeholder="テキスト（省略可）"
-                  value={linkText}
-                  onChange={(e) => setLinkText(e.target.value)}
-                  className="text-[13px] text-[#1D1C1D] focus:outline-none"
-                  style={{ border: '1px solid #DDDDDD', borderRadius: '4px', padding: '5px 8px' }}
-                />
-              )}
+              <p className="text-[15px] font-bold" style={{ color: 'var(--sk-text)' }}>リンクを追加</p>
+              <label className="text-[13px] font-bold" style={{ color: 'var(--sk-text)' }}>テキスト</label>
+              <input
+                type="text"
+                placeholder="表示するテキスト（省略可）"
+                value={linkText}
+                onChange={(e) => setLinkText(e.target.value)}
+                className="text-[14px] focus:outline-none"
+                style={{ border: '1px solid var(--sk-border-strong)', borderRadius: 4, padding: '6px 8px', color: 'var(--sk-text)' }}
+              />
+              <label className="text-[13px] font-bold" style={{ color: 'var(--sk-text)' }}>リンク</label>
               <input
                 ref={linkUrlInputRef}
                 type="text"
-                placeholder="https://..."
+                placeholder="https://"
                 value={linkUrl}
                 onChange={(e) => setLinkUrl(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') { e.preventDefault(); commitLink(); }
                   if (e.key === 'Escape') setLinkPopupOpen(false);
                 }}
-                className="text-[13px] text-[#1D1C1D] focus:outline-none"
-                style={{ border: '1px solid #1D9BD1', borderRadius: '4px', padding: '5px 8px', boxShadow: '0 0 0 1px #1D9BD1' }}
+                className="text-[14px] focus:outline-none"
+                style={{ border: '1px solid var(--sk-link)', borderRadius: 4, padding: '6px 8px', boxShadow: '0 0 0 1px var(--sk-link)', color: 'var(--sk-text)' }}
               />
-              <div className="flex gap-2">
+              <div className="flex justify-end gap-2 mt-1">
                 <button
-                  onClick={commitLink}
-                  disabled={!linkUrl.trim()}
-                  className="flex-1 py-1.5 rounded text-[13px] font-semibold text-white transition-colors"
-                  style={{ background: linkUrl.trim() ? '#007A5A' : '#DDDDDD', color: linkUrl.trim() ? '#FFFFFF' : '#999999' }}
-                >
-                  挿入
-                </button>
-                <button
+                  type="button"
                   onClick={() => setLinkPopupOpen(false)}
-                  className="flex-1 py-1.5 rounded text-[13px] text-[#1D1C1D]"
-                  style={{ border: '1px solid #DDDDDD' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = '#F0F0F0'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                  className="px-3 h-8 text-[14px] font-bold"
+                  style={{ border: '1px solid var(--sk-border-strong)', borderRadius: 4, color: 'var(--sk-text)' }}
                 >
                   キャンセル
+                </button>
+                <button
+                  type="button"
+                  onClick={commitLink}
+                  disabled={!linkUrl.trim()}
+                  className="px-3 h-8 text-[14px] font-bold"
+                  style={{
+                    borderRadius: 4,
+                    background: linkUrl.trim() ? 'var(--sk-green)' : 'var(--sk-subtle)',
+                    color: linkUrl.trim() ? '#FFFFFF' : 'var(--sk-text-3)',
+                  }}
+                >
+                  保存
                 </button>
               </div>
             </div>
@@ -863,67 +1184,50 @@ export default function MessageInput() {
 
         {/* ── Top formatting toolbar ── */}
         {showTopBar && (
-          <div className="flex items-center gap-0.5 px-2 py-1.5 flex-wrap"
-            style={{ borderBottom: '1px solid #EEEEEE' }}>
-
-            <ToolBtn title="太字 (Ctrl+B)" active={fmt.bold} onMouseDown={(e) => { e.preventDefault(); exec('bold'); }}>
-              <span style={{ fontWeight: 700, fontSize: '13px', fontFamily: 'inherit' }}>B</span>
+          <div
+            className="flex items-center gap-0.5 px-1.5 overflow-hidden"
+            style={{
+              height: 36,
+              background: 'var(--sk-hover)',
+              borderTopLeftRadius: 8,
+              borderTopRightRadius: 8,
+              opacity: toolbarDim ? 0.5 : 1,
+              transition: 'opacity 150ms',
+            }}
+          >
+            <ToolBtn title="太字 (⌘B)" active={fmt.bold} onMouseDown={(e) => { e.preventDefault(); runCmd('bold'); }}>
+              <BoldIcon className={iconCls} />
             </ToolBtn>
-            <ToolBtn title="斜体 (Ctrl+I)" active={fmt.italic} onMouseDown={(e) => { e.preventDefault(); exec('italic'); }}>
-              <span style={{ fontStyle: 'italic', fontSize: '13px' }}>I</span>
+            <ToolBtn title="斜体 (⌘I)" active={fmt.italic} onMouseDown={(e) => { e.preventDefault(); runCmd('italic'); }}>
+              <ItalicIcon className={iconCls} />
             </ToolBtn>
-            <ToolBtn title="下線 (Ctrl+U)" active={fmt.underline} onMouseDown={(e) => { e.preventDefault(); exec('underline'); }}>
-              <span style={{ textDecoration: 'underline', fontSize: '13px' }}>U</span>
+            <ToolBtn title="下線 (⌘U)" active={fmt.underline} onMouseDown={(e) => { e.preventDefault(); runCmd('underline'); }}>
+              <UnderlineIcon className={iconCls} />
             </ToolBtn>
-            <ToolBtn title="打ち消し線" active={fmt.strike} onMouseDown={(e) => { e.preventDefault(); exec('strikeThrough'); }}>
-              <span style={{ textDecoration: 'line-through', fontSize: '13px' }}>S</span>
+            <ToolBtn title="取り消し線" active={fmt.strike} onMouseDown={(e) => { e.preventDefault(); runCmd('strikeThrough'); }}>
+              <StrikeIcon className={iconCls} />
             </ToolBtn>
-
-            <div className="w-px h-4 bg-[#DDDDDD] mx-0.5 flex-shrink-0" />
-
-            {/* Link (Ctrl+K) */}
-            <ToolBtn title="リンク (Ctrl+K)" onMouseDown={openLinkPopup}>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
-              </svg>
+            <Divider />
+            <ToolBtn title="リンク (⌘K)" onMouseDown={(e) => openLinkPopup(e)}>
+              <LinkIcon className={iconCls} />
             </ToolBtn>
-
-            <div className="w-px h-4 bg-[#DDDDDD] mx-0.5 flex-shrink-0" />
-
-            {/* Ordered list */}
-            <ToolBtn title="番号付きリスト" active={fmt.ol} onMouseDown={(e) => { e.preventDefault(); exec('insertOrderedList'); }}>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6l1.5-.75v5.25M3 16.5h1.5M3 18.75h1.5c0-.75.75-.75.75-1.5s-.75-1.5-.75-1.5" />
-              </svg>
+            <Divider />
+            <ToolBtn title="番号付きリスト" active={fmt.ol} onMouseDown={(e) => { e.preventDefault(); runCmd('insertOrderedList'); }}>
+              <OrderedListIcon className={iconCls} />
             </ToolBtn>
-            {/* Bullet list */}
-            <ToolBtn title="箇条書き" active={fmt.ul} onMouseDown={(e) => { e.preventDefault(); exec('insertUnorderedList'); }}>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
-              </svg>
+            <ToolBtn title="箇条書き" active={fmt.ul} onMouseDown={(e) => { e.preventDefault(); runCmd('insertUnorderedList'); }}>
+              <BulletListIcon className={iconCls} />
             </ToolBtn>
-
-            <div className="w-px h-4 bg-[#DDDDDD] mx-0.5 flex-shrink-0" />
-
-            {/* Blockquote */}
+            <Divider />
             <ToolBtn title="引用" active={fmt.blockquote} onMouseDown={handleBlockquote}>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h11M3 14h7m-7-8h16" />
-              </svg>
+              <QuoteIcon className={iconCls} />
             </ToolBtn>
-
-            {/* Inline code */}
-            <ToolBtn title="インラインコード" onMouseDown={handleInlineCode}>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
-              </svg>
+            <Divider />
+            <ToolBtn title="コード" active={fmt.code} onMouseDown={handleInlineCode}>
+              <CodeIcon className={iconCls} />
             </ToolBtn>
-
-            {/* Code block */}
             <ToolBtn title="コードブロック" onMouseDown={handleCodeBlock}>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M14.25 9.75L16.5 12l-2.25 2.25m-4.5 0L7.5 12l2.25-2.25M6 20.25h12A2.25 2.25 0 0020.25 18V6A2.25 2.25 0 0018 3.75H6A2.25 2.25 0 003.75 6v12A2.25 2.25 0 006 20.25z" />
-              </svg>
+              <CodeBlockIcon className={iconCls} />
             </ToolBtn>
           </div>
         )}
@@ -934,21 +1238,20 @@ export default function MessageInput() {
             {attachedFiles.map((file, i) => (
               <div
                 key={i}
-                className="flex items-center gap-1.5 px-2 py-1 rounded text-[12px]"
-                style={{ background: '#F0F0F0', border: '1px solid #DDDDDD', maxWidth: '200px' }}
+                className="flex items-center gap-1.5 px-2 h-7 text-[13px]"
+                style={{ background: 'var(--sk-hover)', border: '1px solid var(--sk-border)', borderRadius: 6, maxWidth: 220 }}
               >
-                <svg className="w-3.5 h-3.5 flex-shrink-0 text-[#616061]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
-                </svg>
-                <span className="truncate text-[#1D1C1D]">{file.name}</span>
+                <PaperclipIcon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--sk-text-2)' }} />
+                <span className="truncate" style={{ color: 'var(--sk-text)' }}>{file.name}</span>
                 <button
+                  type="button"
+                  title="削除"
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => removeFile(i)}
-                  className="flex-shrink-0 text-[#616061] hover:text-[#E01E5A] transition-colors ml-0.5"
+                  className="flex-shrink-0 ml-0.5"
+                  style={{ color: 'var(--sk-text-2)' }}
                 >
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
+                  <CloseIcon className="w-3 h-3" />
                 </button>
               </div>
             ))}
@@ -959,10 +1262,20 @@ export default function MessageInput() {
         <div className="relative">
           {isEmpty && attachedFiles.length === 0 && (
             <div
-              className="absolute top-0 left-0 px-4 py-3 text-[15px] pointer-events-none select-none leading-relaxed"
-              style={{ color: '#616061' }}
+              className="absolute top-0 left-0 right-0 px-3 py-[11px] text-[15px] pointer-events-none select-none flex items-center min-w-0"
+              style={{ color: 'var(--sk-text-3)', lineHeight: '22px' }}
+              aria-hidden="true"
             >
-              {placeholder}
+              {isDM || !channel ? (
+                <span className="truncate">{placeholderText}</span>
+              ) : (
+                <>
+                  {channel.isPrivate
+                    ? <LockIcon className="flex-shrink-0" style={{ width: 14, height: 14 }} />
+                    : <HashIcon className="flex-shrink-0" style={{ width: 14, height: 14 }} />}
+                  <span className="truncate">{channel.name} へのメッセージ</span>
+                </>
+              )}
             </div>
           )}
           <div
@@ -970,106 +1283,166 @@ export default function MessageInput() {
             contentEditable={!sending}
             role="textbox"
             aria-multiline="true"
-            aria-label={placeholder}
+            aria-label={placeholderText}
             onInput={handleInput}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
-            className="w-full px-4 py-3 text-[15px] text-[#1D1C1D] focus:outline-none"
-            style={{ minHeight: '64px', maxHeight: '200px', overflowY: 'auto', wordBreak: 'break-word', lineHeight: '1.46875' }}
+            className="w-full px-3 py-[11px] text-[15px] focus:outline-none"
+            style={{ color: 'var(--sk-text)', minHeight: 44, maxHeight: 280, overflowY: 'auto', wordBreak: 'break-word', lineHeight: '22px' }}
             suppressContentEditableWarning
           />
         </div>
 
-        {/* ── Bottom secondary toolbar ── */}
-        <div className="flex items-center justify-between px-2 py-1.5"
-          style={{ borderTop: '1px solid #EEEEEE' }}>
-          <div className="flex items-center gap-0.5">
-            {/* File attachment */}
-            <ToolBtn title="ファイルを添付（ファイル名をテキストに追加）" onClick={() => fileInputRef.current?.click()}>
-              <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
-              </svg>
+        {/* ── Bottom toolbar ── */}
+        <div className="flex items-center justify-between px-1.5" style={{ height: 40 }}>
+          <div className="flex items-center gap-0.5 relative min-w-0">
+            <ToolBtn title="添付" round active={plusMenuOpen} onClick={() => { setPlusMenuOpen((v) => !v); setScheduleMenuOpen(false); }}>
+              <PlusIcon className={iconCls} />
             </ToolBtn>
+            {plusMenuOpen && (
+              <div className="absolute bottom-full left-0 mb-2 z-40 py-2" style={{ ...POPOVER_STYLE, minWidth: 320 }}>
+                <MenuItem
+                  icon={<PaperclipIcon className="w-4 h-4 flex-shrink-0" />}
+                  onClick={() => { setPlusMenuOpen(false); fileInputRef.current?.click(); }}
+                >
+                  ファイルをアップロード（ファイル名を添付）
+                </MenuItem>
+                <MenuItem
+                  icon={<CodeBlockIcon className="w-4 h-4 flex-shrink-0" />}
+                  onClick={() => { setPlusMenuOpen(false); insertCodeBlock(); }}
+                >
+                  コードまたはテキストのスニペット
+                </MenuItem>
+              </div>
+            )}
 
-            {/* Aa — toggles top formatting toolbar */}
-            <ToolBtn title="書式設定" onClick={() => setShowTopBar((v) => !v)} active={showTopBar}>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25H12" />
-              </svg>
+            <ToolBtn title={showTopBar ? '書式設定を非表示にする' : '書式設定を表示する'} active={showTopBar} onClick={() => setShowTopBar((v) => !v)}>
+              <FormatAaIcon className={iconCls} />
             </ToolBtn>
-
-            {/* Emoji */}
             <ToolBtn title="絵文字" onClick={() => setEmojiPickerOpen((p) => !p)} active={emojiPickerOpen}>
-              <span style={{ fontSize: '16px', lineHeight: 1 }}>😊</span>
+              <EmojiIcon className={iconCls} />
             </ToolBtn>
-
-            {/* @ mention */}
-            <ToolBtn title="メンション" onMouseDown={(e) => {
-              e.preventDefault();
-              editableRef.current?.focus();
-              document.execCommand('insertText', false, '@');
-              setSuggestQuery('');
-              setSuggestOpen(true);
-              setIsEmpty(false);
-            }}>
-              <span style={{ fontWeight: 700, fontSize: '14px' }}>@</span>
+            <ToolBtn title="メンション" onMouseDown={(e) => { e.preventDefault(); insertAtSign(); }}>
+              <AtIcon className={iconCls} />
             </ToolBtn>
-
-            <div className="w-px h-4 bg-[#DDDDDD] mx-0.5 flex-shrink-0" />
-
-            {/* Video (decorative) */}
-            <ToolBtn title="ビデオクリップ（未対応）">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" />
-              </svg>
+            <Divider />
+            <ToolBtn title="ビデオクリップを録画する" onClick={() => toast.info('ビデオクリップ/音声クリップはこのバージョンでは未対応です')}>
+              <VideoIcon className={iconCls} />
             </ToolBtn>
-
-            {/* Mic (decorative) */}
-            <ToolBtn title="音声メッセージ（未対応）">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
-              </svg>
+            <ToolBtn title="音声クリップを録音する" onClick={() => toast.info('ビデオクリップ/音声クリップはこのバージョンでは未対応です')}>
+              <MicIcon className={iconCls} />
+            </ToolBtn>
+            <Divider />
+            <ToolBtn title="ショートカットを実行する" onMouseDown={(e) => { e.preventDefault(); openSlashMenu(); }}>
+              <SlashBoxIcon className={iconCls} />
             </ToolBtn>
           </div>
 
-          {/* Send */}
-          <button
-            onClick={handleSend}
-            disabled={!canSend}
-            title={canSend ? '送信 (Enter)' : 'メッセージを入力してください'}
-            className="w-8 h-8 flex items-center justify-center rounded-lg flex-shrink-0 press-strong"
-            style={{
-              background: canSend ? 'linear-gradient(135deg, #007A5A, #009E74)' : '#E8E8E8',
-              color: canSend ? '#FFFFFF' : '#AAAAAA',
-              cursor: canSend ? 'pointer' : 'not-allowed',
-              boxShadow: canSend ? '0 2px 6px rgba(0,122,90,0.35)' : 'none',
-              transition: 'background 200ms, box-shadow 200ms, transform 100ms, opacity 100ms',
-            }}
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-            </svg>
-          </button>
+          {/* Send split button */}
+          <div className="relative flex-shrink-0">
+            <div
+              className="flex items-center h-7"
+              style={{
+                borderRadius: 4,
+                background: canSend ? 'var(--sk-green)' : 'transparent',
+                color: canSend ? '#FFFFFF' : 'var(--sk-text-3)',
+                transition: 'background 120ms',
+              }}
+            >
+              <button
+                type="button"
+                onClick={handleSend}
+                disabled={!canSend}
+                title={canSend ? '今すぐ送信する (Enter)' : 'メッセージを入力してください'}
+                aria-label="今すぐ送信する"
+                className="w-7 h-7 flex items-center justify-center"
+                style={{ borderRadius: '4px 0 0 4px', cursor: canSend ? 'pointer' : 'default' }}
+                onMouseEnter={(e) => { if (canSend) e.currentTarget.style.background = 'var(--sk-green-hover)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+              >
+                <SendFilledIcon className="w-4 h-4" />
+              </button>
+              <span className="w-px h-5" style={{ background: canSend ? 'rgba(255,255,255,0.5)' : 'var(--sk-border)' }} />
+              <button
+                type="button"
+                onClick={() => { if (canSend) { setScheduleMenuOpen((v) => !v); setPlusMenuOpen(false); setCustomOpen(false); } }}
+                disabled={!canSend}
+                title="送信日時を設定"
+                aria-label="送信日時を設定"
+                aria-expanded={scheduleMenuOpen}
+                className="h-7 flex items-center justify-center"
+                style={{ width: 20, borderRadius: '0 4px 4px 0', cursor: canSend ? 'pointer' : 'default' }}
+                onMouseEnter={(e) => { if (canSend) e.currentTarget.style.background = 'var(--sk-green-hover)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+              >
+                <ChevronDownIcon className="w-4 h-4" />
+              </button>
+            </div>
+
+            {scheduleMenuOpen && (
+              <div className="absolute bottom-full right-0 mb-2 z-40 py-2" style={{ ...POPOVER_STYLE, width: 300 }}>
+                <div className="px-4 pb-1 text-[15px] font-bold" style={{ color: 'var(--sk-text)' }}>送信日時を設定</div>
+                {scheduleOptions().map((o) => (
+                  <MenuItem key={o.label} onClick={() => scheduleSend(o.at)}>
+                    {o.label} <span className="opacity-80">{o.sub}</span>
+                  </MenuItem>
+                ))}
+                <div className="my-1 h-px" style={{ background: 'var(--sk-border)' }} />
+                {!customOpen ? (
+                  <MenuItem onClick={() => { setCustomValue(defaultCustom()); setCustomOpen(true); }}>
+                    カスタム時刻…
+                  </MenuItem>
+                ) : (
+                  <div className="px-4 py-1 flex flex-col gap-2">
+                    <input
+                      type="datetime-local"
+                      value={customValue}
+                      min={format(new Date(), "yyyy-MM-dd'T'HH:mm")}
+                      onChange={(e) => setCustomValue(e.target.value)}
+                      className="text-[14px] focus:outline-none"
+                      style={{ border: '1px solid var(--sk-border-strong)', borderRadius: 4, padding: '5px 8px', color: 'var(--sk-text)' }}
+                    />
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setCustomOpen(false)}
+                        className="px-3 h-7 text-[13px] font-bold"
+                        style={{ border: '1px solid var(--sk-border-strong)', borderRadius: 4, color: 'var(--sk-text)' }}
+                      >キャンセル</button>
+                      <button
+                        type="button"
+                        onClick={() => scheduleSend(new Date(customValue).getTime())}
+                        disabled={!customValue}
+                        className="px-3 h-7 text-[13px] font-bold"
+                        style={{ borderRadius: 4, background: 'var(--sk-green)', color: '#FFFFFF' }}
+                      >送信予約</button>
+                    </div>
+                  </div>
+                )}
+                <div className="px-4 pt-1 text-[12px]" style={{ color: 'var(--sk-text-3)' }}>
+                  ※ アプリを開いている間に送信されます
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      <div className="hidden md:flex items-center justify-between mt-1 px-1">
-        <p className="text-[12px] text-[#616061]">
-          <kbd className="font-mono bg-[#F8F8F8] border border-[#DDDDDD] rounded px-1">Enter</kbd> で送信・
-          <kbd className="font-mono bg-[#F8F8F8] border border-[#DDDDDD] rounded px-1">Shift+Enter</kbd> で改行・
-          <kbd className="font-mono bg-[#F8F8F8] border border-[#DDDDDD] rounded px-1">Ctrl+/</kbd> でショートカット一覧
-        </p>
-        {charCount > 3500 && (
-          <span
-            className="text-[12px] font-medium flex-shrink-0 ml-2"
-            style={{ color: charCount > 4000 ? '#E01E5A' : '#E8A000' }}
-          >
-            {charCount} / 4000
-          </span>
-        )}
-      </div>
+      {anyMenuOpen && <div className="fixed inset-0 z-30" onClick={closeMenus} />}
+
+      {/* Hint row: テキスト入力中のみ表示 */}
+      {(!isEmpty || charCount > 3500) && (
+        <div className="absolute right-5 bottom-[2px] flex items-center gap-3 text-[12px] pointer-events-none" style={{ color: 'var(--sk-text-3)' }}>
+          {charCount > 3500 && (
+            <span className="font-medium" style={{ color: charCount > 4000 ? 'var(--sk-red)' : '#E8A000' }}>
+              {charCount} / 4000
+            </span>
+          )}
+          {!isEmpty && <span className="hidden md:inline"><b>Shift + Enter</b> で改行</span>}
+        </div>
+      )}
     </div>
   );
 }

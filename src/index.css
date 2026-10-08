@@ -3,6 +3,71 @@
 @tailwind utilities;
 
 /* ============================================================
+   Slack design tokens
+   - --sk-window : 上部バー + タブレールの背景（ウィンドウ全体）
+   - サイドバーは window の上に白の半透明オーバーレイを重ねる（実機の見え方を再現）
+   ============================================================ */
+:root {
+  /* content (light) */
+  --sk-text: #1D1C1D;
+  --sk-text-2: #616061;
+  --sk-text-3: #868686;
+  --sk-link: #1264A3;
+  --sk-border: rgba(29, 28, 29, 0.13);
+  --sk-border-strong: rgba(29, 28, 29, 0.3);
+  --sk-hover: #F8F8F8;
+  --sk-subtle: rgba(29, 28, 29, 0.06);
+  --sk-blue: #1D9BD1;
+  --sk-red: #E01E5A;
+  --sk-green: #007A5A;
+  --sk-green-hover: #148567;
+  --sk-online: #2BAC76;
+  --sk-yellow: #ECB22E;
+  --sk-mention-bg: rgba(29, 155, 209, 0.1);
+  --sk-mention-me-bg: rgba(242, 199, 68, 0.4);
+  --sk-radius-card: 8px;
+
+  /* chrome (theme) — default: crimson / navy (参考スクリーンショットの配色) */
+  --sk-window:
+    radial-gradient(120% 90% at 0% 0%, #5E0007 0%, rgba(94, 0, 7, 0) 60%),
+    radial-gradient(110% 90% at 100% 100%, #5E0004 0%, rgba(94, 0, 4, 0) 62%),
+    #0A0237;
+  --sk-sidebar-overlay: rgba(255, 255, 255, 0.1);
+  --sk-sidebar-text: rgba(255, 255, 255, 0.72);
+  --sk-sidebar-text-strong: #FFFFFF;
+  --sk-sidebar-muted: rgba(255, 255, 255, 0.5);
+  --sk-sidebar-hover: rgba(255, 255, 255, 0.1);
+  --sk-sidebar-border: rgba(255, 255, 255, 0.14);
+  --sk-active-item: #070C53;
+  --sk-active-item-text: #FFFFFF;
+  --sk-rail-active: rgba(255, 255, 255, 0.22);
+  --sk-rail-hover: rgba(255, 255, 255, 0.12);
+  --sk-badge: #E01E5A;
+  --sk-accent: #8E1B2C;           /* タブの下線などのアクセント */
+}
+
+:root[data-theme='aubergine'] {
+  --sk-window: linear-gradient(180deg, #3B0B3C 0%, #350D36 100%);
+  --sk-active-item: #1164A3;
+  --sk-accent: #4A154B;
+}
+
+:root[data-theme='midnight'] {
+  --sk-window:
+    radial-gradient(120% 90% at 0% 0%, #1B2B5A 0%, rgba(27, 43, 90, 0) 60%),
+    #0B1023;
+  --sk-active-item: #1D9BD1;
+  --sk-accent: #1264A3;
+}
+
+:root[data-theme='forest'] {
+  --sk-window: linear-gradient(160deg, #0F3D2E 0%, #0B2A26 100%);
+  --sk-active-item: #2BAC76;
+  --sk-active-item-text: #0B2A26;
+  --sk-accent: #007A5A;
+}
+
+/* ============================================================
    Slack-style custom scrollbar
    ============================================================ */
 @layer base {
@@ -57,8 +122,10 @@
 
   body {
     @apply text-sm antialiased;
-    font-family: 'Lato', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial,
-      sans-serif;
+    font-family: 'Slack-Lato', 'Lato', -apple-system, BlinkMacSystemFont, 'Hiragino Sans',
+      'Hiragino Kaku Gothic ProN', 'Noto Sans JP', 'Segoe UI', Helvetica, Arial, sans-serif;
+    color: var(--sk-text);
+    background: #0A0237;
   }
 }
 
@@ -164,6 +231,12 @@
   button:disabled {
     cursor: not-allowed;
   }
+}
+
+/* Slack 風: 上部固定の日付ピル / ツールチップ */
+@keyframes skTooltipIn {
+  from { opacity: 0; transform: translate(-50%, 2px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
 }
 
 /* ============================================================

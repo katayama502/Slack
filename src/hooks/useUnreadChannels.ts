@@ -9,8 +9,20 @@ export function getLastVisit(channelId: string): number {
   return v ? parseInt(v, 10) : 0;
 }
 
+// チャンネルを開く直前の lastVisit（「新着」区切り線の位置計算用）
+const visitBeforeOpen = new Map<string, number>();
+
 export function markChannelRead(channelId: string): void {
-  localStorage.setItem(KEY(channelId), Date.now().toString());
+  const now = Date.now();
+  const prev = getLastVisit(channelId);
+  // 同じ操作内の多重呼び出し（サイドバー → ストア購読）で上書きしないよう 2 秒の猶予
+  if (now - prev > 2000) visitBeforeOpen.set(channelId, prev);
+  localStorage.setItem(KEY(channelId), now.toString());
+}
+
+/** チャンネルを開いた時点より前の最終訪問時刻（未訪問なら 0） */
+export function getVisitBeforeOpen(channelId: string): number {
+  return visitBeforeOpen.get(channelId) ?? getLastVisit(channelId);
 }
 
 export function markChannelUnreadFrom(channelId: string, timestampMs: number): void {

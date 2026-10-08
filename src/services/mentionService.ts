@@ -17,7 +17,7 @@ import { Notification, User } from '../types'
 // メンションパターン @[displayName](uid) を解析して uid[] を返す
 // ─────────────────────────────────────────────────────────────────────────────
 export function parseMentions(text: string): string[] {
-  const pattern = /@\[([^\]]+)\]\(([^)]+)\)/g
+  const pattern = /@\[(.+?)\]\(([A-Za-z0-9_-]+)\)/g
   const uids: string[] = []
   let match: RegExpExecArray | null
   while ((match = pattern.exec(text)) !== null) {

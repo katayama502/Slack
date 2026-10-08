@@ -13,7 +13,8 @@ export default function WorkspacePage() {
   const setChannels = useAppStore((s) => s.setChannels);
   const setNotifications = useAppStore((s) => s.setNotifications);
   const setSavedMessages = useAppStore((s) => s.setSavedMessages);
-  const prevUnreadCountRef = useRef(0);
+  const notifications = useAppStore((s) => s.notifications);
+  const seenNotifIdsRef = useRef<Set<string> | null>(null);
   const navigate = useNavigate();
 
   // デスクトップ通知の権限リクエスト
@@ -24,25 +25,36 @@ export default function WorkspacePage() {
     }
   }, [user]);
 
-  // 未読通知が増えたときにデスクトップ通知を送る
-  const notifications = useAppStore((s) => s.notifications);
+  // 新着の未読通知をデスクトップ通知する
+  // - 初回スナップショットは既存分として扱い通知しない
+  // - 「通知を一時停止」中は通知しない
+  // - チャンネル通知設定が 'off'（ミュート）のチャンネルは通知しない
   useEffect(() => {
-    const unread = notifications.filter((n) => !n.read);
-    if (
-      unread.length > prevUnreadCountRef.current &&
-      document.visibilityState !== 'visible' &&
-      'Notification' in window &&
-      Notification.permission === 'granted'
-    ) {
-      const latest = unread[0];
-      if (latest) {
-        new Notification(`${latest.fromDisplayName} からメッセージ`, {
-          body: latest.text,
+    const seen = seenNotifIdsRef.current;
+    if (!seen) return; // 初回スナップショット受信前
+    seenNotifIdsRef.current = new Set(notifications.map((n) => n.id));
+
+    const { notificationsPaused, channelNotifPrefs } = useAppStore.getState();
+    if (notificationsPaused) return;
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    if (document.visibilityState === 'visible') return;
+
+    notifications
+      .filter((n) => !n.read && !seen.has(n.id) && channelNotifPrefs[n.channelId] !== 'off')
+      .slice(0, 3)
+      .forEach((n) => {
+        const desktop = new Notification(`${n.fromDisplayName} からの新着メッセージ`, {
+          body: n.text.slice(0, 100),
           icon: '/favicon.ico',
+          tag: n.id,
         });
-      }
-    }
-    prevUnreadCountRef.current = unread.length;
+        desktop.onclick = () => {
+          window.focus();
+          const st = useAppStore.getState();
+          st.setActiveChannel(n.channelId);
+          if (n.messageId) st.setJumpToMessageId(n.messageId);
+        };
+      });
   }, [notifications]);
 
   useEffect(() => {
@@ -50,18 +62,16 @@ export default function WorkspacePage() {
       navigate('/', { replace: true });
       return;
     }
+    seenNotifIdsRef.current = null;
 
-    // チャンネルを購読
     const unsubChannels = subscribeToChannels((channels) => {
       setChannels(channels);
     });
-
-    // 通知を購読
     const unsubNotifications = subscribeToNotifications(user.uid, (notifs) => {
+      // 初回スナップショットは既読扱いの基準として記録（デスクトップ通知しない）
+      if (!seenNotifIdsRef.current) seenNotifIdsRef.current = new Set(notifs.map((n) => n.id));
       setNotifications(notifs);
     });
-
-    // 保存済みメッセージを購読
     const unsubSaved = subscribeSavedMessages(user.uid, (msgs) => {
       setSavedMessages(msgs);
     });

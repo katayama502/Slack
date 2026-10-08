@@ -1,226 +1,275 @@
+// 左端のタブレール（70px）: ワークスペース / ホーム / DM / アクティビティ / ファイル / 後で / その他 / 作成 / テーマ / プロフィール
+import { useState, useEffect } from 'react';
 import { useAppStore } from '../../store/useAppStore';
+import type { NavTab, ThemeId } from '../../store/useAppStore';
+import { signOut } from '../../services';
 import { useUnreadChannels } from '../../hooks/useUnreadChannels';
+import Avatar from '../ui/Avatar';
+import { StatusPicker } from '../ui/StatusPicker';
+import { toast } from '../ui/Toast';
+import AddChannelModal from './AddChannelModal';
+import { Popover, MenuItem, MenuDivider, NewDMModal, ToggleSwitch, isDMChannel } from './shared';
+import {
+  HomeIcon, DMIcon, BellIcon, FilesIcon, BookmarkIcon, MoreHorizontalIcon, PlusIcon, MoonIcon, CheckIcon,
+} from '../ui/icons';
+
+export const THEMES: { id: ThemeId; label: string; swatch: string }[] = [
+  { id: 'crimson', label: 'クリムゾン', swatch: 'linear-gradient(135deg, #7A0F2C, #4A0D3C)' },
+  { id: 'aubergine', label: 'オーベルジーヌ', swatch: 'linear-gradient(135deg, #3B0B3C, #350D36)' },
+  { id: 'midnight', label: 'ミッドナイト', swatch: 'linear-gradient(135deg, #0B1C3A, #102A54)' },
+  { id: 'forest', label: 'フォレスト', swatch: 'linear-gradient(135deg, #0F3D2E, #0B2A26)' },
+];
+
+type PopoverKind = 'more' | 'create' | 'theme' | 'profile';
+
+function RailTab({
+  label,
+  active,
+  onClick,
+  icon,
+  badge,
+}: {
+  label: string;
+  active: boolean;
+  onClick: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  icon: (filled: boolean) => React.ReactNode;
+  badge?: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      aria-current={active ? 'page' : undefined}
+      className="group flex flex-col items-center gap-[3px] w-full pt-1 pb-1.5"
+    >
+      <span
+        className={`relative w-9 h-9 flex items-center justify-center rounded-lg text-white transition-colors ${active ? '' : 'group-hover:bg-[var(--sk-rail-hover)]'}`}
+        style={{ background: active ? 'var(--sk-rail-active)' : undefined }}
+      >
+        {icon(active)}
+        {badge}
+      </span>
+      <span className="text-[11px] font-bold text-white leading-[13px] text-center px-0.5">{label}</span>
+    </button>
+  );
+}
 
 export default function NavRail() {
   const { user } = useAppStore((s) => s.auth);
-  const setActiveChannel = useAppStore((s) => s.setActiveChannel);
-  const notificationsPanelOpen = useAppStore((s) => s.notificationsPanelOpen);
-  const setNotificationsPanelOpen = useAppStore((s) => s.setNotificationsPanelOpen);
+  const users = useAppStore((s) => s.users);
+  const navTab = useAppStore((s) => s.navTab);
+  const setNavTab = useAppStore((s) => s.setNavTab);
+  const setMainView = useAppStore((s) => s.setMainView);
   const unreadCount = useAppStore((s) => s.unreadCount);
-  const activeChannelId = useAppStore((s) => s.activeChannelId);
   const channels = useAppStore((s) => s.channels);
+  const channelNotifPrefs = useAppStore((s) => s.channelNotifPrefs);
+  const theme = useAppStore((s) => s.theme);
+  const setTheme = useAppStore((s) => s.setTheme);
+  const notificationsPaused = useAppStore((s) => s.notificationsPaused);
+  const setNotificationsPaused = useAppStore((s) => s.setNotificationsPaused);
+  const setShortcutsOpen = useAppStore((s) => s.setShortcutsOpen);
   const unreadChannels = useUnreadChannels();
 
-  const hasUnreadChannels = unreadChannels.size > 0;
-  const activeChannel = channels.find((c) => c.id === activeChannelId);
-  const isChannelActive = !!(activeChannelId && activeChannel && !activeChannel.name.startsWith('__dm__'));
-  const isDMActive = !!(activeChannelId && activeChannel?.name.startsWith('__dm__'));
+  const [pop, setPop] = useState<{ kind: PopoverKind; anchor: DOMRect } | null>(null);
+  const [showNewDM, setShowNewDM] = useState(false);
+  const [showAddChannel, setShowAddChannel] = useState(false);
+  const [statusAnchor, setStatusAnchor] = useState<DOMRect | null>(null);
 
-  const savedItemsPanelOpen = useAppStore((s) => s.savedItemsPanelOpen);
-  const setSavedItemsPanelOpen = useAppStore((s) => s.setSavedItemsPanelOpen);
-  const savedMessages = useAppStore((s) => s.savedMessages);
-
-  const handleHome = () => {
-    setActiveChannel(null);
-    setNotificationsPanelOpen(false);
-    setSavedItemsPanelOpen(false);
+  const me = users.find((u) => u.uid === user?.uid) ?? user;
+  const close = () => setPop(null);
+  const openPop = (kind: PopoverKind) => (e: React.MouseEvent<HTMLElement>) => {
+    const anchor = e.currentTarget.getBoundingClientRect();
+    setPop((p) => (p?.kind === kind ? null : { kind, anchor }));
   };
 
-  const handleActivity = () => {
-    setNotificationsPanelOpen(!notificationsPanelOpen);
-    if (!notificationsPanelOpen) setSavedItemsPanelOpen(false);
-  };
+  // サイドバーの歯車メニュー等からテーマピッカーを開く
+  useEffect(() => {
+    const handler = () => {
+      const el = document.getElementById('rail-theme-button');
+      if (el) setPop({ kind: 'theme', anchor: el.getBoundingClientRect() });
+    };
+    window.addEventListener('open-theme-picker', handler);
+    return () => window.removeEventListener('open-theme-picker', handler);
+  }, []);
 
-  const handleSaved = () => {
-    setSavedItemsPanelOpen(!savedItemsPanelOpen);
-    if (!savedItemsPanelOpen) setNotificationsPanelOpen(false);
-  };
+  // ホームの未読ドット: ミュートでないチャンネル / DM のいずれかが未読
+  const homeHasUnread = Array.from(unreadChannels).some((id) => {
+    const ch = channels.find((c) => c.id === id);
+    return ch && !isDMChannel(ch) && channelNotifPrefs[id] !== 'off';
+  });
+  const dmHasUnread = Array.from(unreadChannels).some((id) => {
+    const ch = channels.find((c) => c.id === id);
+    return ch && isDMChannel(ch);
+  });
 
-  const NavBtn = ({
-    title,
-    onClick,
-    active,
-    children,
-    badge,
-  }: {
-    title: string;
-    onClick: () => void;
-    active?: boolean;
-    children: React.ReactNode;
-    badge?: React.ReactNode;
-  }) => (
-    <div className="relative w-full flex items-center">
-      {/* Active indicator: left pill */}
-      <div
-        className="absolute left-0 rounded-r-full transition-all duration-200"
-        style={{
-          width: '3px',
-          height: active ? '24px' : '0px',
-          background: '#FFFFFF',
-          opacity: active ? 1 : 0,
-        }}
-      />
-      <button
-        title={title}
-        aria-label={title}
-        aria-pressed={active}
-        onClick={onClick}
-        className="relative mx-auto w-10 h-10 flex flex-col items-center justify-center gap-0.5 rounded-lg"
-        style={{
-          color: active ? '#FFFFFF' : 'rgba(255,255,255,0.55)',
-          background: active ? 'rgba(255,255,255,0.18)' : 'transparent',
-          transition: 'background 150ms ease, color 150ms ease, transform 100ms ease, opacity 100ms ease',
-          boxShadow: active ? '0 1px 4px rgba(0,0,0,0.2)' : 'none',
-        }}
-        onMouseEnter={(e) => {
-          if (!active) {
-            e.currentTarget.style.background = 'rgba(255,255,255,0.12)';
-            e.currentTarget.style.color = '#FFFFFF';
-          }
-        }}
-        onMouseLeave={(e) => {
-          if (!active) {
-            e.currentTarget.style.background = 'transparent';
-            e.currentTarget.style.color = 'rgba(255,255,255,0.55)';
-          }
-        }}
-      >
-        {children}
-        {badge}
-      </button>
-    </div>
-  );
+  const tab = (t: NavTab) => () => { setNavTab(t); close(); };
+  const dot = (show: boolean) =>
+    show ? <span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-white" style={{ boxShadow: '0 0 0 2px rgba(0,0,0,0.15)' }} aria-hidden="true" /> : null;
+
+  const handleSignOut = async () => {
+    close();
+    try { await signOut(); } catch (err) { console.error('Sign out error:', err); }
+  };
 
   return (
-    <div
-      className="flex flex-col items-center py-2 gap-0.5 flex-shrink-0"
-      style={{ width: '56px', background: '#3B0D3C', borderRight: '1px solid rgba(255,255,255,0.07)' }}
-    >
+    <div className="flex flex-col items-center flex-shrink-0 pb-3" style={{ width: 70 }} aria-label="タブ">
       {/* Workspace icon */}
-      <div className="mb-3 mt-1">
-        <button
-          className="w-9 h-9 flex items-center justify-center text-white font-bold text-[15px] press-subtle"
-          style={{
-            borderRadius: '10px',
-            background: 'linear-gradient(135deg, #4A154B, #6B2D6B)',
-            border: '1px solid rgba(255,255,255,0.25)',
-            boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
-          }}
-          title="Creatte ワークスペース"
-        >
-          C
-        </button>
-      </div>
+      <button
+        type="button"
+        title="Creatte"
+        aria-label="Creatte ワークスペース"
+        onClick={tab('home')}
+        className="mt-1 mb-3 w-9 h-9 flex items-center justify-center rounded-lg bg-white text-[20px] leading-none"
+        style={{ color: '#4A154B', fontWeight: 900, boxShadow: '0 0 0 3px rgba(255,255,255,0.25)' }}
+      >
+        C
+      </button>
 
-      {/* Home */}
-      <NavBtn title="ホーム" onClick={handleHome} active={!activeChannelId && !notificationsPanelOpen && !savedItemsPanelOpen}>
-        <svg className="w-[22px] h-[22px]" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
-        </svg>
-        <span className="text-[9px] leading-none font-medium">ホーム</span>
-      </NavBtn>
-
-      {/* Channels */}
-      <NavBtn title="チャンネル" onClick={handleHome} active={isChannelActive}>
-        <div className="relative">
-          <svg className="w-[22px] h-[22px]" fill="none" stroke="currentColor" strokeWidth={isChannelActive ? 2 : 1.7} viewBox="0 0 24 24" aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 8.25h15m-16.5 7.5h15m-1.8-13.5l-3.9 19.5m-2.1-19.5l-3.9 19.5" />
-          </svg>
-          {hasUnreadChannels && !isChannelActive && (
+      <div className="flex flex-col items-center w-full gap-1">
+        <RailTab label="ホーム" active={navTab === 'home'} onClick={tab('home')} icon={(f) => <HomeIcon filled={f} className="w-5 h-5" />} badge={dot(homeHasUnread && navTab !== 'home')} />
+        <RailTab label="DM" active={navTab === 'dms'} onClick={tab('dms')} icon={(f) => <DMIcon filled={f} className="w-5 h-5" />} badge={dot(dmHasUnread && navTab !== 'dms')} />
+        <RailTab
+          label="アクティビティ"
+          active={navTab === 'activity'}
+          onClick={tab('activity')}
+          icon={(f) => <BellIcon filled={f} className="w-5 h-5" />}
+          badge={unreadCount > 0 ? (
             <span
-              className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full"
-              style={{ background: '#E01E5A', border: '1.5px solid #3B0D3C' }}
-            />
-          )}
-        </div>
-        <span className="text-[9px] leading-none font-medium">チャンネル</span>
-      </NavBtn>
-
-      {/* DM */}
-      <NavBtn title="ダイレクトメッセージ" onClick={() => {
-        // DM チャンネルがあれば最初のものを開く、なければホームへ
-        const firstDM = channels.find((c) => c.name.startsWith('__dm__'));
-        if (firstDM) setActiveChannel(firstDM.id);
-        else setActiveChannel(null);
-      }} active={isDMActive}>
-        <svg className="w-[22px] h-[22px]" fill="none" stroke="currentColor" strokeWidth={isDMActive ? 2 : 1.7} viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242m9.345-8.334a2.126 2.126 0 00-.476-.095 48.64 48.64 0 00-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0011.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" />
-        </svg>
-        <span className="text-[9px] leading-none font-medium">DM</span>
-      </NavBtn>
-
-      {/* Activity (notifications) */}
-      <NavBtn
-        title={`アクティビティ${unreadCount > 0 ? ` (${unreadCount}件)` : ''}`}
-        onClick={handleActivity}
-        active={notificationsPanelOpen}
-        badge={
-          unreadCount > 0 ? (
-            <span
-              className="absolute top-0.5 right-0.5 min-w-[16px] h-4 flex items-center justify-center text-white text-[10px] font-bold leading-none px-0.5"
-              style={{ background: '#E01E5A', borderRadius: '8px', border: '1.5px solid #3B0D3C' }}
+              className="absolute -top-1 -right-1.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full text-[11px] font-bold text-white"
+              style={{ background: 'var(--sk-badge)', boxShadow: '0 0 0 2px rgba(0,0,0,0.2)' }}
+              aria-label={`未読 ${unreadCount} 件`}
             >
-              {unreadCount > 9 ? '9+' : unreadCount}
+              {unreadCount > 99 ? '99+' : unreadCount}
             </span>
-          ) : null
-        }
-      >
-        <svg className="w-[22px] h-[22px]" fill="none" stroke="currentColor" strokeWidth={notificationsPanelOpen ? 2 : 1.7} viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
-        </svg>
-        <span className="text-[9px] leading-none font-medium">通知</span>
-      </NavBtn>
-
-      {/* Saved Items */}
-      <NavBtn
-        title="保存済みアイテム"
-        onClick={handleSaved}
-        active={savedItemsPanelOpen}
-        badge={
-          savedMessages.length > 0 ? (
-            <span
-              className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full"
-              style={{ background: '#E8A400', border: '1.5px solid #3B0D3C' }}
-            />
-          ) : null
-        }
-      >
-        <svg className="w-[22px] h-[22px]" fill={savedItemsPanelOpen ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={savedItemsPanelOpen ? 2 : 1.7} viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z" />
-        </svg>
-        <span className="text-[9px] leading-none font-medium">保存</span>
-      </NavBtn>
+          ) : undefined}
+        />
+        <RailTab label="ファイル" active={navTab === 'files'} onClick={tab('files')} icon={(f) => <FilesIcon filled={f} className="w-5 h-5" />} />
+        <RailTab label="後で" active={navTab === 'later'} onClick={tab('later')} icon={(f) => <BookmarkIcon filled={f} className="w-5 h-5" />} />
+        <RailTab label="その他" active={pop?.kind === 'more'} onClick={openPop('more')} icon={() => <MoreHorizontalIcon className="w-5 h-5" />} />
+      </div>
 
       <div className="flex-1" />
 
-      {/* User avatar at bottom */}
-      <div className="mb-1 relative">
+      {/* Bottom: create / theme / profile */}
+      <div className="flex flex-col items-center gap-3">
         <button
-          className="press-subtle"
-          style={{ borderRadius: '8px', overflow: 'hidden' }}
-          title={user?.displayName ?? 'プロフィール'}
+          type="button"
+          aria-label="作成する"
+          title="作成する"
+          onClick={openPop('create')}
+          className="w-9 h-9 flex items-center justify-center rounded-full text-white transition-colors hover:bg-[rgba(255,255,255,0.3)]"
+          style={{ background: 'rgba(255,255,255,0.2)' }}
         >
-          {user?.photoURL ? (
-            <img
-              src={user.photoURL}
-              alt={user.displayName ?? ''}
-              className="w-8 h-8 object-cover block"
-              style={{ borderRadius: '6px' }}
-            />
-          ) : (
-            <div
-              className="w-8 h-8 flex items-center justify-center text-white text-sm font-bold"
-              style={{ borderRadius: '6px', background: '#1164A3' }}
-            >
-              {(user?.displayName ?? '?')[0].toUpperCase()}
-            </div>
-          )}
+          <PlusIcon className="w-5 h-5" />
         </button>
-        <span
-          className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 bg-[#007A5A] pointer-events-none"
-          style={{ borderColor: '#3B0D3C' }}
-        />
+        <button
+          id="rail-theme-button"
+          type="button"
+          aria-label="テーマを変更"
+          title="テーマを変更"
+          onClick={openPop('theme')}
+          className="w-9 h-9 flex items-center justify-center rounded-full text-white transition-colors hover:bg-[var(--sk-rail-hover)]"
+          style={{ background: 'rgba(255,255,255,0.12)' }}
+        >
+          <MoonIcon className="w-5 h-5" />
+        </button>
+        <button type="button" aria-label="プロフィール" title={me?.displayName ?? 'プロフィール'} onClick={openPop('profile')} className="rounded-lg">
+          <Avatar name={me?.displayName ?? '?'} photoURL={me?.photoURL} size={36} online={me?.online ?? true} ringColor="rgba(0,0,0,0.35)" />
+        </button>
       </div>
+
+      {/* ── Popovers ── */}
+      {pop?.kind === 'more' && (
+        <Popover anchor={pop.anchor} onClose={close} label="その他">
+          <p className="px-6 pb-1 text-[13px] font-bold text-[var(--sk-text-2)]">その他</p>
+          <MenuItem onClick={() => { close(); setNavTab('home'); setMainView('directory'); }}>ディレクトリ</MenuItem>
+          <MenuItem onClick={() => { close(); setNavTab('home'); setMainView('huddles'); }}>ハドルミーティング</MenuItem>
+          <MenuItem onClick={() => { close(); setMainView('slackbot'); }}>Slackbot</MenuItem>
+          <MenuDivider />
+          <MenuItem onClick={() => { const el = document.getElementById('rail-theme-button'); if (el) setPop({ kind: 'theme', anchor: el.getBoundingClientRect() }); }}>テーマを変更</MenuItem>
+          <MenuItem onClick={() => { close(); setShortcutsOpen(true); }}>キーボードショートカット</MenuItem>
+          <MenuDivider />
+          <MenuItem onClick={handleSignOut}>サインアウト</MenuItem>
+        </Popover>
+      )}
+
+      {pop?.kind === 'create' && (
+        <Popover anchor={pop.anchor} placement="right-up" width={280} onClose={close} label="作成">
+          <p className="px-6 pb-1 text-[13px] font-bold text-[var(--sk-text-2)]">作成する</p>
+          <MenuItem onClick={() => { close(); setShowNewDM(true); }}>メッセージ</MenuItem>
+          <MenuItem onClick={() => { close(); setShowAddChannel(true); }}>チャンネル</MenuItem>
+        </Popover>
+      )}
+
+      {pop?.kind === 'theme' && (
+        <Popover anchor={pop.anchor} placement="right-up" width={300} onClose={close} label="テーマ">
+          <p className="px-5 pb-2 text-[15px] font-bold">テーマ</p>
+          <div className="grid grid-cols-2 gap-2 px-4 pb-2">
+            {THEMES.map((t) => {
+              const active = theme === t.id;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={active}
+                  onClick={() => setTheme(t.id)}
+                  className="flex items-center gap-2 p-1.5 rounded-lg text-left text-[13px] hover:bg-[var(--sk-subtle)]"
+                  style={{ boxShadow: active ? 'inset 0 0 0 2px var(--sk-blue)' : 'inset 0 0 0 1px var(--sk-border)' }}
+                >
+                  <span className="w-7 h-7 rounded-md flex-shrink-0 flex items-center justify-center text-white" style={{ background: t.swatch }}>
+                    {active && <CheckIcon className="w-4 h-4" />}
+                  </span>
+                  <span className="truncate">{t.label}</span>
+                </button>
+              );
+            })}
+          </div>
+          <MenuDivider />
+          <div className="flex items-center justify-between px-5" style={{ height: 32 }}>
+            <span className="text-[15px]">通知を一時停止</span>
+            <ToggleSwitch dark={false} checked={notificationsPaused} onChange={setNotificationsPaused} label="通知を一時停止" />
+          </div>
+        </Popover>
+      )}
+
+      {pop?.kind === 'profile' && (
+        <Popover anchor={pop.anchor} placement="right-up" width={300} onClose={close} label="プロフィール">
+          <div className="flex items-center gap-3 px-5 pb-3">
+            <Avatar name={me?.displayName ?? '?'} photoURL={me?.photoURL} size={36} />
+            <div className="min-w-0">
+              <p className="text-[15px] truncate" style={{ fontWeight: 900 }}>{me?.displayName ?? 'ユーザー'}</p>
+              <p className="text-[13px] text-[var(--sk-text-2)] flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full" style={{ background: notificationsPaused ? 'var(--sk-text-3)' : 'var(--sk-online)' }} />
+                {notificationsPaused ? '通知を一時停止中' : 'アクティブ'}
+              </p>
+            </div>
+          </div>
+          <div className="px-4 pb-2">
+            <button
+              type="button"
+              onClick={(e) => { setStatusAnchor(e.currentTarget.getBoundingClientRect()); close(); }}
+              className="w-full flex items-center gap-2 px-3 rounded-md text-left text-[14px] text-[var(--sk-text-2)]"
+              style={{ height: 36, border: '1px solid var(--sk-border-strong)' }}
+            >
+              <span>{me?.status?.emoji ?? '🙂'}</span>
+              <span className="truncate">{me?.status?.text ?? 'ステータスを更新'}</span>
+            </button>
+          </div>
+          <MenuItem onClick={() => setNotificationsPaused(!notificationsPaused)} right={<span className="text-[13px] opacity-70">{notificationsPaused ? 'オン' : 'オフ'}</span>}>
+            {notificationsPaused ? '通知を再開する' : '通知を一時停止'}
+          </MenuItem>
+          <MenuDivider />
+          <MenuItem onClick={() => { close(); toast.info('プロフィール編集はこのバージョンでは未対応です'); }}>プロフィール</MenuItem>
+          <MenuDivider />
+          <MenuItem onClick={handleSignOut}>Creatte からサインアウト</MenuItem>
+        </Popover>
+      )}
+
+      {showNewDM && <NewDMModal onClose={() => setShowNewDM(false)} />}
+      {showAddChannel && <AddChannelModal onClose={() => setShowAddChannel(false)} />}
+      {statusAnchor && <StatusPicker anchor={statusAnchor} currentStatus={me?.status} onClose={() => setStatusAnchor(null)} />}
     </div>
   );
 }

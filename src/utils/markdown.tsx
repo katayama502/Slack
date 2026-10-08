@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useAppStore } from '../store/useAppStore';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -91,17 +92,100 @@ function parseBlocks(text: string): BlockNode[] {
 
 // ─── Inline renderer ─────────────────────────────────────────────────────────
 
+export interface RenderMarkdownOptions {
+  /** 自分の uid。自分宛メンションを黄色チップで表示するのに使う */
+  currentUid?: string;
+}
+
+const MONO = '"SFMono-Regular", Monaco, Menlo, Consolas, "Liberation Mono", "Courier New", monospace';
+
 function isSafeUrl(url: string): boolean {
   return /^https?:\/\//i.test(url.trim());
 }
 
-function renderInline(text: string): React.ReactNode[] {
+const linkHoverOn = (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.textDecoration = 'underline'; };
+const linkHoverOff = (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.textDecoration = 'none'; };
+
+function SafeLink({ href, children }: { href: string; children: React.ReactNode }) {
+  if (!isSafeUrl(href)) return <span>{children}</span>;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{ color: 'var(--sk-link)', textDecoration: 'none', wordBreak: 'break-all' }}
+      onMouseEnter={linkHoverOn}
+      onMouseLeave={linkHoverOff}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {children}
+    </a>
+  );
+}
+
+/** メンションチップ（他人: 青 / 自分・@channel 等: 黄） */
+function MentionChip({ label, self }: { label: string; self: boolean }) {
+  const bg = self ? 'var(--sk-mention-me-bg)' : 'var(--sk-mention-bg)';
+  return (
+    <span
+      style={{
+        color: self ? 'var(--sk-text)' : 'var(--sk-link)',
+        background: bg,
+        borderRadius: '3px',
+        padding: '0 2px',
+        cursor: 'pointer',
+        transition: 'filter 80ms',
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(0.94)'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.filter = 'none'; }}
+    >
+      @{label}
+    </span>
+  );
+}
+
+/** #チャンネル名 → 実在すれば移動できるリンク */
+function ChannelChip({ name, channelId }: { name: string; channelId: string }) {
+  return (
+    <span
+      role="link"
+      tabIndex={0}
+      style={{
+        color: 'var(--sk-link)',
+        background: 'var(--sk-mention-bg)',
+        borderRadius: '3px',
+        padding: '0 2px',
+        cursor: 'pointer',
+        textDecoration: 'none',
+      }}
+      onMouseEnter={linkHoverOn}
+      onMouseLeave={linkHoverOff}
+      onClick={(e) => {
+        e.stopPropagation();
+        const st = useAppStore.getState();
+        if (st.channels.some((c) => c.id === channelId)) st.setActiveChannel(channelId);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          useAppStore.getState().setActiveChannel(channelId);
+        }
+      }}
+    >
+      #{name}
+    </span>
+  );
+}
+
+function renderInline(text: string, opts: RenderMarkdownOptions = {}): React.ReactNode[] {
   const pattern =
-    /(@\[[^\]]+\]\([^)]+\))|(@(?:channel|here|everyone))|(\[([^\]]+)\]\((https?:\/\/[^\s)]+)\))|(https?:\/\/[^\s<>"]+[^\s<>".,;!?()'\]])|(?<!\w)\*([^\s*](?:[^*\n]*[^\s*])?)\*(?!\w)|(?<!\w)_([^\s_](?:[^_\n]*[^\s_])?)_(?!\w)|(?<!\w)~([^\s~](?:[^~\n]*[^\s~])?)~(?!\w)|`([^`\n]+)`|(?<!\w)#([a-z][a-zA-Z0-9_-]*)(?!\w)/g;
+    /(@\[.+?\]\([A-Za-z0-9_-]+\))|(@(?:channel|here|everyone))|(\[([^\]]+)\]\((https?:\/\/[^\s)]+)\))|(https?:\/\/[^\s<>"]+[^\s<>".,;!?()'\]])|(?<!\w)\*([^\s*](?:[^*\n]*[^\s*])?)\*(?!\w)|(?<!\w)_([^\s_](?:[^_\n]*[^\s_])?)_(?!\w)|(?<!\w)~([^\s~](?:[^~\n]*[^\s~])?)~(?!\w)|`([^`\n]+)`|(?<![\w#])#(\p{L}[\p{L}\p{N}_-]*)/gu;
 
   const nodes: React.ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
+  // #channel 判定用（存在するチャンネルのみリンク化。それ以外はプレーンテキスト）
+  const channels = useAppStore.getState().channels;
 
   while ((match = pattern.exec(text)) !== null) {
     if (match.index > lastIndex) {
@@ -112,78 +196,17 @@ function renderInline(text: string): React.ReactNode[] {
 
     if (match[1]) {
       // @[name](uid) personal mention
-      const nameMatch = match[1].match(/^@\[([^\]]+)\]/);
-      const name = nameMatch ? nameMatch[1] : match[1];
-      nodes.push(
-        <span
-          key={key}
-          style={{
-            color: '#1264A3',
-            background: 'rgba(18,100,163,0.1)',
-            borderRadius: '3px',
-            padding: '0 3px',
-            fontWeight: 700,
-            cursor: 'pointer',
-          }}
-        >
-          @{name}
-        </span>
-      );
+      const m = match[1].match(/^@\[(.+)\]\(([A-Za-z0-9_-]+)\)$/);
+      const name = m ? m[1] : match[1];
+      const uid = m ? m[2] : '';
+      nodes.push(<MentionChip key={key} label={name} self={!!opts.currentUid && uid === opts.currentUid} />);
     } else if (match[2]) {
-      // @channel / @here / @everyone special mention
-      const keyword = match[2].slice(1); // remove leading @
-      nodes.push(
-        <span
-          key={key}
-          style={{
-            color: '#7C4E00',
-            background: 'rgba(248,185,0,0.2)',
-            borderRadius: '3px',
-            padding: '0 3px',
-            fontWeight: 700,
-            cursor: 'pointer',
-          }}
-        >
-          @{keyword}
-        </span>
-      );
+      // @channel / @here / @everyone は全員宛 → 自分宛扱い（黄）
+      nodes.push(<MentionChip key={key} label={match[2].slice(1)} self />);
     } else if (match[3]) {
-      const linkText = match[4];
-      const linkUrl = match[5];
-      nodes.push(
-        isSafeUrl(linkUrl) ? (
-          <a
-            key={key}
-            href={linkUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ color: '#1264A3', textDecoration: 'none' }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {linkText}
-          </a>
-        ) : (
-          <span key={key}>{linkText}</span>
-        )
-      );
+      nodes.push(<SafeLink key={key} href={match[5]}>{match[4]}</SafeLink>);
     } else if (match[6]) {
-      const rawUrl = match[6];
-      nodes.push(
-        <a
-          key={key}
-          href={rawUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ color: '#1264A3', textDecoration: 'none' }}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {rawUrl}
-        </a>
-      );
+      nodes.push(<SafeLink key={key} href={match[6]}>{match[6]}</SafeLink>);
     } else if (match[7] !== undefined) {
       nodes.push(<strong key={key} style={{ fontWeight: 700 }}>{match[7]}</strong>);
     } else if (match[8] !== undefined) {
@@ -195,36 +218,24 @@ function renderInline(text: string): React.ReactNode[] {
         <code
           key={key}
           style={{
-            fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace',
-            fontSize: '12.5px',
-            background: 'rgba(29,28,29,0.06)',
-            border: '1px solid rgba(29,28,29,0.13)',
+            fontFamily: MONO,
+            fontSize: '12px',
+            lineHeight: '18px',
+            background: 'rgba(29,28,29,0.04)',
+            border: '1px solid var(--sk-border)',
             borderRadius: '3px',
-            padding: '2px 5px',
-            color: '#E01E5A',
-            lineHeight: 1.4,
+            padding: '2px 3px',
+            color: 'var(--sk-red)',
+            wordBreak: 'break-word',
           }}
         >
           {match[10]}
         </code>
       );
     } else if (match[11] !== undefined) {
-      // #channel-name mention
-      nodes.push(
-        <span
-          key={key}
-          style={{
-            color: '#1264A3',
-            background: 'rgba(18,100,163,0.1)',
-            borderRadius: '3px',
-            padding: '0 3px',
-            fontWeight: 700,
-            cursor: 'pointer',
-          }}
-        >
-          #{match[11]}
-        </span>
-      );
+      const name = match[11];
+      const ch = channels.find((c) => c.name === name && !c.name.startsWith('__dm__'));
+      nodes.push(ch ? <ChannelChip key={key} name={name} channelId={ch.id} /> : `#${name}`);
     }
 
     lastIndex = pattern.lastIndex;
@@ -251,21 +262,20 @@ function CodeBlock({ lang, lines, index }: { lang: string; lines: string[]; inde
   };
 
   return (
-    <div key={index} className="relative group/code" style={{ margin: '4px 0' }}>
+    <div key={index} className="relative group/code" style={{ margin: '4px 0', maxWidth: '100%' }}>
       <pre
         style={{
-          fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace',
-          fontSize: '12.5px',
-          lineHeight: 1.55,
+          fontFamily: MONO,
+          fontSize: '12px',
+          lineHeight: 1.5,
           background: 'rgba(29,28,29,0.04)',
-          border: '1px solid rgba(29,28,29,0.13)',
+          border: '1px solid var(--sk-border)',
           borderRadius: '4px',
-          padding: '8px 12px',
-          paddingRight: '64px',
+          padding: '8px',
           overflowX: 'auto',
-          whiteSpace: 'pre',
-          wordBreak: 'normal',
-          color: '#1D1C1D',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          color: 'var(--sk-text)',
           maxWidth: '100%',
         }}
       >
@@ -274,7 +284,7 @@ function CodeBlock({ lang, lines, index }: { lang: string; lines: string[]; inde
             style={{
               display: 'block',
               fontSize: '11px',
-              color: '#9E9EA6',
+              color: 'var(--sk-text-3)',
               marginBottom: '6px',
               fontFamily: 'inherit',
               letterSpacing: '0.3px',
@@ -291,9 +301,9 @@ function CodeBlock({ lang, lines, index }: { lang: string; lines: string[]; inde
         onClick={handleCopy}
         className="absolute top-2 right-2 opacity-0 group-hover/code:opacity-100 flex items-center gap-1 px-2 py-0.5 text-[11px] rounded font-medium"
         style={{
-          background: copied ? '#007A5A' : '#FFFFFF',
-          color: copied ? '#FFFFFF' : '#616061',
-          border: `1px solid ${copied ? '#007A5A' : '#DDDDDD'}`,
+          background: copied ? 'var(--sk-green)' : '#FFFFFF',
+          color: copied ? '#FFFFFF' : 'var(--sk-text-2)',
+          border: `1px solid ${copied ? 'var(--sk-green)' : 'var(--sk-border)'}`,
           boxShadow: '0 1px 4px rgba(0,0,0,0.12)',
           transition: 'background 150ms, color 150ms, border-color 150ms, opacity 200ms',
         }}
@@ -331,7 +341,7 @@ function isImageUrl(url: string): boolean {
 
 // ─── Block renderer ──────────────────────────────────────────────────────────
 
-function renderBlock(block: BlockNode, index: number): React.ReactNode {
+function renderBlock(block: BlockNode, index: number, opts: RenderMarkdownOptions = {}): React.ReactNode {
   switch (block.type) {
 
     case 'code':
@@ -342,10 +352,10 @@ function renderBlock(block: BlockNode, index: number): React.ReactNode {
         <blockquote
           key={index}
           style={{
-            borderLeft: '3px solid #DDDDDD',
-            paddingLeft: '10px',
-            margin: '3px 0',
-            color: '#616061',
+            borderLeft: '4px solid #DDDDDD',
+            paddingLeft: '12px',
+            margin: '4px 0',
+            color: 'var(--sk-text)',
             whiteSpace: 'pre-wrap',
             wordBreak: 'break-word',
           }}
@@ -353,7 +363,7 @@ function renderBlock(block: BlockNode, index: number): React.ReactNode {
           {block.lines.map((line, j) => (
             <React.Fragment key={j}>
               {j > 0 && '\n'}
-              {renderInline(line)}
+              {renderInline(line, opts)}
             </React.Fragment>
           ))}
         </blockquote>
@@ -371,7 +381,7 @@ function renderBlock(block: BlockNode, index: number): React.ReactNode {
         >
           {block.items.map((item, j) => (
             <li key={j} style={{ margin: '1px 0', wordBreak: 'break-word' }}>
-              {renderInline(item)}
+              {renderInline(item, opts)}
             </li>
           ))}
         </ul>
@@ -389,7 +399,7 @@ function renderBlock(block: BlockNode, index: number): React.ReactNode {
         >
           {block.items.map((item, j) => (
             <li key={j} style={{ margin: '1px 0', wordBreak: 'break-word' }}>
-              {renderInline(item)}
+              {renderInline(item, opts)}
             </li>
           ))}
         </ol>
@@ -430,7 +440,7 @@ function renderBlock(block: BlockNode, index: number): React.ReactNode {
             wordBreak: 'break-word',
           }}
         >
-          {renderInline(block.text)}
+          {renderInline(block.text, opts)}
         </p>
       );
     }
@@ -439,7 +449,11 @@ function renderBlock(block: BlockNode, index: number): React.ReactNode {
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-export function renderMarkdown(text: string): React.ReactNode {
+/**
+ * Slack 風 mrkdwn を React ノードに変換する（生 HTML は一切挿入しない）。
+ * 既存呼び出し `renderMarkdown(text)` との互換を保ちつつ、`opts.currentUid` で自分宛メンションを判別する。
+ */
+export function renderMarkdown(text: string, opts: RenderMarkdownOptions = {}): React.ReactNode {
   if (!text) return null;
 
   const blocks = parseBlocks(text);
@@ -448,14 +462,14 @@ export function renderMarkdown(text: string): React.ReactNode {
   if (blocks.length === 1 && blocks[0].type === 'para') {
     return (
       <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-        {renderInline(blocks[0].text)}
+        {renderInline(blocks[0].text, opts)}
       </span>
     );
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-      {blocks.map((block, i) => renderBlock(block, i))}
+      {blocks.map((block, i) => renderBlock(block, i, opts))}
     </div>
   );
 }
